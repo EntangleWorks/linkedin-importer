@@ -83,6 +83,7 @@ class LinkedInScraperClient:
         user_agent: Optional[str] = None,
         screenshot_on_error: bool = False,
         screenshot_dir: Optional[str] = None,
+        max_retries: int = 3,
     ):
         """Initialize the LinkedIn scraper client.
 
@@ -95,6 +96,7 @@ class LinkedInScraperClient:
             user_agent: Custom user agent string (uses Chrome default if None)
             screenshot_on_error: Whether to capture screenshots when errors occur
             screenshot_dir: Directory to save screenshots (defaults to current directory)
+            max_retries: Maximum retry attempts for failed operations (default: 3)
         """
         self.headless = headless
         self.chromedriver_path = chromedriver_path
@@ -104,6 +106,7 @@ class LinkedInScraperClient:
         self.user_agent = user_agent
         self.screenshot_on_error = screenshot_on_error
         self.screenshot_dir = screenshot_dir or "."
+        self.max_retries = max_retries
 
         self.driver: Optional[webdriver.Chrome] = None
         self.authenticated: bool = False
@@ -111,9 +114,10 @@ class LinkedInScraperClient:
         self._browser_version: Optional[str] = None
 
         logger.debug(
-            "LinkedInScraperClient initialized: headless=%s, timeout=%ds, screenshot_on_error=%s",
+            "LinkedInScraperClient initialized: headless=%s, timeout=%ds, max_retries=%d, screenshot_on_error=%s",
             headless,
             page_load_timeout,
+            max_retries,
             screenshot_on_error,
         )
 
@@ -728,7 +732,7 @@ class LinkedInScraperClient:
             return False
 
     def get_profile(self, profile_url: str) -> "Person":
-        """Scrape a LinkedIn profile.
+        """Scrape a LinkedIn profile with retry logic.
 
         Args:
             profile_url: LinkedIn profile URL
@@ -753,38 +757,68 @@ class LinkedInScraperClient:
         normalized_url = self._normalize_profile_url(profile_url)
         logger.info("Scraping profile: %s", normalized_url)
 
-        try:
-            # Use linkedin_scraper's Person class
-            person = Person(
-                linkedin_url=normalized_url,
-                driver=driver,
-                scrape=True,
-                close_on_complete=False,
-            )
+        last_error: Optional[Exception] = None
+        retry_count = 0
 
-            logger.info("Successfully scraped profile: %s", person.name)
-            return person
+        while retry_count <= self.max_retries:
+            try:
+                # Use linkedin_scraper's Person class
+                person = Person(
+                    linkedin_url=normalized_url,
+                    driver=driver,
+                    scrape=True,
+                    close_on_complete=False,
+                )
 
-        except Exception as e:
-            error_str = str(e).lower()
+                logger.info("Successfully scraped profile: %s", person.name)
+                return person
 
-            if "404" in error_str or "not found" in error_str:
-                raise ProfileNotFound(
-                    normalized_url,
-                    details={"error": str(e)},
-                ) from e
+            except Exception as e:
+                last_error = e
+                error_str = str(e).lower()
 
-            if "blocked" in error_str or "restricted" in error_str:
-                raise ScrapingBlocked(
-                    "LinkedIn has blocked this scraping attempt",
-                    details={"profile_url": normalized_url, "error": str(e)},
-                ) from e
+                # Check for fatal errors that should not be retried
+                if "404" in error_str or "not found" in error_str:
+                    self._capture_error_screenshot("profile_not_found")
+                    raise ProfileNotFound(
+                        normalized_url,
+                        details={"error": str(e)},
+                    ) from e
 
-            # Re-raise as generic error with context
-            raise ScrapingBlocked(
-                f"Failed to scrape profile: {e}",
-                details={"profile_url": normalized_url, "error": str(e)},
-            ) from e
+                if "blocked" in error_str or "restricted" in error_str:
+                    self._capture_error_screenshot("scraping_blocked")
+                    raise ScrapingBlocked(
+                        "LinkedIn has blocked this scraping attempt",
+                        details={"profile_url": normalized_url, "error": str(e)},
+                    ) from e
+
+                # Check if we should retry
+                if retry_count < self.max_retries:
+                    # Calculate exponential backoff: 2^retry seconds
+                    wait_time = 2**retry_count
+                    logger.warning(
+                        "Scraping attempt %d/%d failed: %s. Retrying in %ds...",
+                        retry_count + 1,
+                        self.max_retries + 1,
+                        str(e),
+                        wait_time,
+                    )
+                    time.sleep(wait_time)
+                    retry_count += 1
+                else:
+                    # Max retries exceeded
+                    break
+
+        # All retries exhausted
+        self._capture_error_screenshot("scraping_failed")
+        raise ScrapingBlocked(
+            f"Failed to scrape profile after {self.max_retries + 1} attempts: {last_error}",
+            details={
+                "profile_url": normalized_url,
+                "error": str(last_error),
+                "attempts": self.max_retries + 1,
+            },
+        ) from last_error
 
     def _normalize_profile_url(self, url: str) -> str:
         """Normalize a LinkedIn profile URL.
