@@ -1,4 +1,8 @@
-"""Property-based tests for missing configuration detection."""
+"""Property-based tests for missing configuration detection.
+
+Note: Tests for api_key and api_secret are marked as skipped because the
+API-based approach has been deprecated in favor of web scraping.
+"""
 
 import os
 from io import StringIO
@@ -10,9 +14,16 @@ from hypothesis import strategies as st
 
 from linkedin_importer.cli import load_config
 
+# Skip reason for deprecated API tests
+DEPRECATED_API_REASON = (
+    "LinkedIn API configuration (api_key/api_secret) is deprecated. "
+    "The scraper now uses cookie-based or credentials-based authentication."
+)
+
 
 # Feature: linkedin-profile-importer, Property 7: Missing configuration detection
 # Validates: Requirements 2.3
+@pytest.mark.skip(reason=DEPRECATED_API_REASON)
 def test_missing_api_key() -> None:
     """When API key is missing from both CLI and env, should fail with error naming the parameter."""
     with patch.dict(
@@ -48,6 +59,7 @@ def test_missing_api_key() -> None:
 
 # Feature: linkedin-profile-importer, Property 7: Missing configuration detection
 # Validates: Requirements 2.3
+@pytest.mark.skip(reason=DEPRECATED_API_REASON)
 def test_missing_api_secret() -> None:
     """When API secret is missing from both CLI and env, should fail with error naming the parameter."""
     with patch.dict(
@@ -183,8 +195,7 @@ def test_missing_database_password() -> None:
 @given(
     missing_param=st.sampled_from(
         [
-            "api_key",
-            "api_secret",
+            # api_key and api_secret removed - deprecated API approach
             "db_name",
             "db_user",
             "db_password",
@@ -194,18 +205,15 @@ def test_missing_database_password() -> None:
 def test_any_missing_required_param_causes_failure(missing_param: str) -> None:
     """For any required configuration parameter, when missing, the tool should fail with exit code 1."""
     # Set up base environment with all required params
+    # Note: LINKEDIN_API_KEY and LINKEDIN_API_SECRET are deprecated
     env = {
         "DB_NAME": "testdb",
         "DB_USER": "testuser",
         "DB_PASSWORD": "testpass",
-        "LINKEDIN_API_KEY": "test_key",
-        "LINKEDIN_API_SECRET": "test_secret",
     }
 
     # Remove the parameter we're testing
     param_to_env_map = {
-        "api_key": "LINKEDIN_API_KEY",
-        "api_secret": "LINKEDIN_API_SECRET",
         "db_name": "DB_NAME",
         "db_user": "DB_USER",
         "db_password": "DB_PASSWORD",

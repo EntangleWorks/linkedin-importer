@@ -1,10 +1,21 @@
-"""Property-based tests for configuration validation."""
+"""Property-based tests for configuration validation.
+
+Note: Tests for api_key and api_secret are marked as skipped because the
+API-based approach has been deprecated in favor of web scraping.
+"""
 
 import pytest
-from hypothesis import given, strategies as st
+from hypothesis import given
+from hypothesis import strategies as st
 from pydantic import ValidationError
 
-from linkedin_importer.config import DatabaseConfig, LinkedInConfig, Config
+from linkedin_importer.config import Config, DatabaseConfig, LinkedInConfig
+
+# Skip reason for deprecated API tests
+DEPRECATED_API_REASON = (
+    "LinkedIn API configuration (api_key/api_secret) is deprecated. "
+    "The scraper now uses cookie-based or credentials-based authentication."
+)
 
 
 # Feature: linkedin-profile-importer, Property 8: Invalid configuration detection
@@ -24,7 +35,7 @@ def test_invalid_port_detection(port: int) -> None:
             password="testpass",
             port=port,
         )
-    
+
     # Verify error message mentions port validation
     error_str = str(exc_info.value)
     assert "port" in error_str.lower()
@@ -32,6 +43,7 @@ def test_invalid_port_detection(port: int) -> None:
 
 # Feature: linkedin-profile-importer, Property 8: Invalid configuration detection
 # Validates: Requirements 2.4
+@pytest.mark.skip(reason=DEPRECATED_API_REASON)
 @given(
     api_key=st.one_of(
         st.just(""),  # Empty string
@@ -45,7 +57,7 @@ def test_invalid_api_key_detection(api_key: str) -> None:
             api_key=api_key,
             api_secret="valid_secret",
         )
-    
+
     # Verify error message mentions the field
     error_str = str(exc_info.value)
     assert "api_key" in error_str.lower() or "empty" in error_str.lower()
@@ -53,6 +65,7 @@ def test_invalid_api_key_detection(api_key: str) -> None:
 
 # Feature: linkedin-profile-importer, Property 8: Invalid configuration detection
 # Validates: Requirements 2.4
+@pytest.mark.skip(reason=DEPRECATED_API_REASON)
 @given(
     api_secret=st.one_of(
         st.just(""),  # Empty string
@@ -66,7 +79,7 @@ def test_invalid_api_secret_detection(api_secret: str) -> None:
             api_key="valid_key",
             api_secret=api_secret,
         )
-    
+
     # Verify error message mentions the field
     error_str = str(exc_info.value)
     assert "api_secret" in error_str.lower() or "empty" in error_str.lower()
@@ -95,7 +108,7 @@ def test_invalid_profile_url_detection(profile_url: str) -> None:
             ),
             profile_url=profile_url,
         )
-    
+
     # Verify error message mentions profile URL
     error_str = str(exc_info.value)
     assert "profile_url" in error_str.lower() or "empty" in error_str.lower()
@@ -111,7 +124,7 @@ def test_missing_database_credentials() -> None:
             user="testuser",
             password="",  # Missing password
         )
-    
+
     # Verify error indicates missing required field
     error_str = str(exc_info.value)
     assert "password" in error_str.lower() or "required" in error_str.lower()
