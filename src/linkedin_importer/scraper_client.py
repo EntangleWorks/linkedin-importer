@@ -35,6 +35,7 @@ except ImportError:
     WEBDRIVER_MANAGER_AVAILABLE = False
     ChromeDriverManager = None  # type: ignore
 
+from .errors import ConfigError
 from .scraper_errors import (
     AuthError,
     BrowserError,
@@ -500,6 +501,147 @@ class LinkedInScraperClient:
             f"2FA verification not completed within {timeout} seconds",
             details={"waited_seconds": timeout},
         )
+
+    def handle_2fa_challenge(self, timeout: int = 120) -> bool:
+        """Handle 2FA by pausing for manual intervention.
+
+        This method:
+        1. Detects the 2FA challenge page
+        2. Logs instructions for the user
+        3. Waits for user to complete 2FA manually
+        4. Verifies successful login after user presses Enter
+
+        Args:
+            timeout: Maximum time to wait for 2FA completion in seconds
+
+        Returns:
+            True if 2FA was successfully completed
+
+        Raises:
+            TwoFactorRequired: If verification fails or times out
+        """
+        logger.warning("=" * 60)
+        logger.warning("2FA VERIFICATION REQUIRED")
+        logger.warning("=" * 60)
+        logger.warning("LinkedIn requires two-factor authentication.")
+        logger.warning("Please complete the verification in the browser window.")
+        logger.warning("")
+        logger.warning(
+            "TIP: To avoid 2FA in the future, use cookie-based authentication:"
+        )
+        logger.warning("  1. Log into LinkedIn in your browser")
+        logger.warning("  2. Open Developer Tools (F12)")
+        logger.warning("  3. Navigate to Application → Cookies → linkedin.com")
+        logger.warning("  4. Find the 'li_at' cookie and copy its value")
+        logger.warning("  5. Set LINKEDIN_COOKIE environment variable with this value")
+        logger.warning("")
+        logger.warning("After completing 2FA, press Enter to continue...")
+        logger.warning("=" * 60)
+
+        # Wait for user input (blocking call)
+        try:
+            input()
+        except EOFError:
+            # Handle non-interactive mode
+            logger.warning("Running in non-interactive mode, waiting for 2FA...")
+            return self.wait_for_2fa_completion(timeout)
+
+        # Give the page time to settle after user interaction
+        time.sleep(self.action_delay * 2)
+
+        # Verify login was successful
+        if self._is_logged_in():
+            self.authenticated = True
+            logger.info("2FA completed successfully")
+            return True
+
+        raise TwoFactorRequired(
+            "2FA verification failed - not logged in after user input",
+            details={
+                "current_url": self.driver.current_url if self.driver else "unknown"
+            },
+        )
+
+    def authenticate(
+        self,
+        cookie: Optional[str] = None,
+        email: Optional[str] = None,
+        password: Optional[str] = None,
+        handle_2fa: bool = True,
+        twofa_timeout: int = 120,
+    ) -> bool:
+        """Authenticate with LinkedIn using cookie or credentials.
+
+        This is the main authentication method that selects the appropriate
+        authentication strategy based on provided credentials:
+        - If cookie is provided, uses cookie authentication (preferred)
+        - If email/password are provided, uses credential authentication
+        - If 2FA is triggered and handle_2fa is True, prompts for manual intervention
+
+        Args:
+            cookie: LinkedIn li_at session cookie (preferred method)
+            email: LinkedIn account email
+            password: LinkedIn account password
+            handle_2fa: Whether to handle 2FA challenges interactively
+            twofa_timeout: Timeout for 2FA completion in seconds
+
+        Returns:
+            True if authentication was successful
+
+        Raises:
+            ConfigError: If no authentication credentials are provided
+            AuthError: If authentication fails
+            CookieExpired: If the cookie is invalid or expired
+            TwoFactorRequired: If 2FA is required and handle_2fa is False
+        """
+        # Determine authentication method
+        if cookie:
+            auth_method = AuthMethod.COOKIE
+            logger.info("Using cookie-based authentication (preferred)")
+        elif email and password:
+            auth_method = AuthMethod.CREDENTIALS
+            logger.info("Using email/password authentication (fallback)")
+        else:
+            raise ConfigError(
+                "No authentication credentials provided. "
+                "Either provide LINKEDIN_COOKIE or both LINKEDIN_EMAIL and LINKEDIN_PASSWORD.",
+                details={
+                    "cookie_provided": cookie is not None,
+                    "email_provided": email is not None,
+                    "password_provided": password is not None,
+                },
+            )
+
+        # Ensure driver is initialized
+        self._ensure_driver()
+
+        try:
+            if auth_method == AuthMethod.COOKIE:
+                return self.authenticate_with_cookie(cookie)
+            else:
+                # Try credential authentication
+                try:
+                    return self.authenticate_with_credentials(email, password)
+                except TwoFactorRequired as e:
+                    if not handle_2fa:
+                        raise
+
+                    # Handle 2FA interactively
+                    logger.warning(
+                        "2FA challenge detected, requesting manual intervention"
+                    )
+                    return self.handle_2fa_challenge(twofa_timeout)
+
+        except (AuthError, CookieExpired, TwoFactorRequired):
+            # Capture screenshot on auth failure if enabled
+            self._capture_error_screenshot("auth_failure")
+            raise
+        except Exception as e:
+            self._capture_error_screenshot("auth_error")
+            raise AuthError(
+                f"Authentication failed unexpectedly: {e}",
+                details={"error": str(e), "auth_method": auth_method.value},
+            ) from e
 
     def _is_logged_in(self) -> bool:
         """Check if currently logged in to LinkedIn.
