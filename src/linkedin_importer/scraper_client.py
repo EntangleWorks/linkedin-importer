@@ -8,8 +8,11 @@ using the linkedin_scraper library. It supports cookie-based authentication
 from __future__ import annotations
 
 import logging
+import os
 import time
+from datetime import datetime
 from enum import Enum
+from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
 from selenium import webdriver
@@ -23,7 +26,14 @@ from selenium.webdriver.chrome.service import Service as ChromeService
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
-from webdriver_manager.chrome import ChromeDriverManager
+
+try:
+    from webdriver_manager.chrome import ChromeDriverManager
+
+    WEBDRIVER_MANAGER_AVAILABLE = True
+except ImportError:
+    WEBDRIVER_MANAGER_AVAILABLE = False
+    ChromeDriverManager = None  # type: ignore
 
 from .scraper_errors import (
     AuthError,
@@ -70,6 +80,8 @@ class LinkedInScraperClient:
         action_delay: float = 1.0,
         scroll_delay: float = 0.5,
         user_agent: Optional[str] = None,
+        screenshot_on_error: bool = False,
+        screenshot_dir: Optional[str] = None,
     ):
         """Initialize the LinkedIn scraper client.
 
@@ -80,6 +92,8 @@ class LinkedInScraperClient:
             action_delay: Delay between actions in seconds
             scroll_delay: Delay between scroll actions in seconds
             user_agent: Custom user agent string (uses Chrome default if None)
+            screenshot_on_error: Whether to capture screenshots when errors occur
+            screenshot_dir: Directory to save screenshots (defaults to current directory)
         """
         self.headless = headless
         self.chromedriver_path = chromedriver_path
@@ -87,14 +101,19 @@ class LinkedInScraperClient:
         self.action_delay = action_delay
         self.scroll_delay = scroll_delay
         self.user_agent = user_agent
+        self.screenshot_on_error = screenshot_on_error
+        self.screenshot_dir = screenshot_dir or "."
 
         self.driver: Optional[webdriver.Chrome] = None
         self.authenticated: bool = False
+        self._driver_version: Optional[str] = None
+        self._browser_version: Optional[str] = None
 
         logger.debug(
-            "LinkedInScraperClient initialized: headless=%s, timeout=%ds",
+            "LinkedInScraperClient initialized: headless=%s, timeout=%ds, screenshot_on_error=%s",
             headless,
             page_load_timeout,
+            screenshot_on_error,
         )
 
     def _create_driver(self) -> webdriver.Chrome:
@@ -106,34 +125,10 @@ class LinkedInScraperClient:
         Raises:
             BrowserError: If the browser fails to start
         """
+        options = self._build_chrome_options()
+        service = self._get_chromedriver_service()
+
         try:
-            options = ChromeOptions()
-
-            if self.headless:
-                options.add_argument("--headless=new")
-
-            # Anti-detection measures
-            options.add_argument("--disable-blink-features=AutomationControlled")
-            options.add_argument("--disable-infobars")
-            options.add_argument("--disable-dev-shm-usage")
-            options.add_argument("--no-sandbox")
-            options.add_argument("--disable-gpu")
-            options.add_argument("--window-size=1920,1080")
-
-            if self.user_agent:
-                options.add_argument(f"--user-agent={self.user_agent}")
-
-            # Exclude automation switches
-            options.add_experimental_option("excludeSwitches", ["enable-automation"])
-            options.add_experimental_option("useAutomationExtension", False)
-
-            # Get ChromeDriver service
-            if self.chromedriver_path:
-                service = ChromeService(executable_path=self.chromedriver_path)
-            else:
-                # Auto-download ChromeDriver
-                service = ChromeService(ChromeDriverManager().install())
-
             driver = webdriver.Chrome(service=service, options=options)
             driver.set_page_load_timeout(self.page_load_timeout)
 
@@ -149,10 +144,17 @@ class LinkedInScraperClient:
                 },
             )
 
+            # Store version info for debugging
+            self._browser_version = driver.capabilities.get("browserVersion", "unknown")
+            self._driver_version = driver.capabilities.get("chrome", {}).get(
+                "chromedriverVersion", "unknown"
+            )
+
             logger.info(
-                "Chrome WebDriver started: headless=%s, version=%s",
+                "Chrome WebDriver started: headless=%s, browser_version=%s, driver_version=%s",
                 self.headless,
-                driver.capabilities.get("browserVersion", "unknown"),
+                self._browser_version,
+                self._driver_version,
             )
 
             return driver
@@ -160,8 +162,144 @@ class LinkedInScraperClient:
         except WebDriverException as e:
             raise BrowserError(
                 f"Failed to start Chrome browser: {e}",
-                details={"headless": self.headless, "error": str(e)},
+                details={
+                    "headless": self.headless,
+                    "chromedriver_path": self.chromedriver_path,
+                    "error": str(e),
+                    "suggestion": "Ensure Chrome browser is installed and chromedriver version matches",
+                },
             ) from e
+
+    def _build_chrome_options(self) -> ChromeOptions:
+        """Build Chrome options with anti-detection measures.
+
+        Returns:
+            Configured ChromeOptions instance
+        """
+        options = ChromeOptions()
+
+        if self.headless:
+            options.add_argument("--headless=new")
+
+        # Anti-detection measures
+        options.add_argument("--disable-blink-features=AutomationControlled")
+        options.add_argument("--disable-infobars")
+        options.add_argument("--disable-dev-shm-usage")
+        options.add_argument("--no-sandbox")
+        options.add_argument("--disable-gpu")
+        options.add_argument("--window-size=1920,1080")
+
+        if self.user_agent:
+            options.add_argument(f"--user-agent={self.user_agent}")
+
+        # Exclude automation switches
+        options.add_experimental_option("excludeSwitches", ["enable-automation"])
+        options.add_experimental_option("useAutomationExtension", False)
+
+        return options
+
+    def _get_chromedriver_service(self) -> ChromeService:
+        """Get ChromeDriver service, auto-downloading if needed.
+
+        Returns:
+            Configured ChromeService instance
+
+        Raises:
+            BrowserError: If chromedriver cannot be found or downloaded
+        """
+        if self.chromedriver_path:
+            # Use custom path
+            if not os.path.exists(self.chromedriver_path):
+                raise BrowserError(
+                    f"ChromeDriver not found at specified path: {self.chromedriver_path}",
+                    details={
+                        "chromedriver_path": self.chromedriver_path,
+                        "suggestion": "Verify the path is correct or remove CHROMEDRIVER_PATH to auto-download",
+                    },
+                )
+            logger.debug("Using custom chromedriver: %s", self.chromedriver_path)
+            return ChromeService(executable_path=self.chromedriver_path)
+
+        # Auto-download ChromeDriver
+        if not WEBDRIVER_MANAGER_AVAILABLE:
+            raise BrowserError(
+                "webdriver-manager not installed and no CHROMEDRIVER_PATH provided",
+                details={
+                    "suggestion": "Install webdriver-manager: pip install webdriver-manager, or set CHROMEDRIVER_PATH",
+                },
+            )
+
+        try:
+            driver_path = ChromeDriverManager().install()
+            logger.debug("Auto-downloaded chromedriver: %s", driver_path)
+            return ChromeService(executable_path=driver_path)
+        except Exception as e:
+            raise BrowserError(
+                f"Failed to auto-download ChromeDriver: {e}",
+                details={
+                    "error": str(e),
+                    "suggestion": "Check internet connection or manually download chromedriver and set CHROMEDRIVER_PATH",
+                },
+            ) from e
+
+    def take_screenshot(self, name: str = "error") -> Optional[str]:
+        """Take a screenshot of the current browser state.
+
+        Args:
+            name: Name prefix for the screenshot file
+
+        Returns:
+            Path to the saved screenshot, or None if failed
+        """
+        if self.driver is None:
+            logger.warning("Cannot take screenshot: driver not initialized")
+            return None
+
+        try:
+            # Create screenshot directory if it doesn't exist
+            screenshot_path = Path(self.screenshot_dir)
+            screenshot_path.mkdir(parents=True, exist_ok=True)
+
+            # Generate filename with timestamp
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"{name}_{timestamp}.png"
+            filepath = screenshot_path / filename
+
+            self.driver.save_screenshot(str(filepath))
+            logger.info("Screenshot saved: %s", filepath)
+            return str(filepath)
+
+        except Exception as e:
+            logger.warning("Failed to take screenshot: %s", e)
+            return None
+
+    def _capture_error_screenshot(self, error_name: str) -> Optional[str]:
+        """Capture screenshot if screenshot_on_error is enabled.
+
+        Args:
+            error_name: Name to use for the screenshot
+
+        Returns:
+            Path to screenshot if captured, None otherwise
+        """
+        if not self.screenshot_on_error:
+            return None
+        return self.take_screenshot(error_name)
+
+    def get_driver_info(self) -> dict:
+        """Get information about the current driver and browser.
+
+        Returns:
+            Dictionary with driver and browser version info
+        """
+        return {
+            "browser_version": self._browser_version,
+            "driver_version": self._driver_version,
+            "headless": self.headless,
+            "page_load_timeout": self.page_load_timeout,
+            "driver_active": self.driver is not None,
+            "authenticated": self.authenticated,
+        }
 
     def _ensure_driver(self) -> webdriver.Chrome:
         """Ensure the WebDriver is initialized.
@@ -534,16 +672,27 @@ class LinkedInScraperClient:
         return url
 
     def close(self) -> None:
-        """Close the browser and clean up resources."""
+        """Close the browser and clean up resources.
+
+        This method is safe to call multiple times. It will only attempt
+        to close the driver if it exists, and will reset the driver
+        reference to None afterwards.
+        """
         if self.driver is not None:
             try:
                 logger.debug("Closing Chrome WebDriver")
                 self.driver.quit()
+                logger.info("Chrome WebDriver closed successfully")
+            except WebDriverException as e:
+                # Driver may already be closed or crashed
+                logger.warning("WebDriverException while closing: %s", e)
             except Exception as e:
-                logger.warning("Error closing WebDriver: %s", e)
+                logger.warning("Unexpected error closing WebDriver: %s", e)
             finally:
                 self.driver = None
                 self.authenticated = False
+                self._browser_version = None
+                self._driver_version = None
 
     def __enter__(self) -> "LinkedInScraperClient":
         """Context manager entry."""
