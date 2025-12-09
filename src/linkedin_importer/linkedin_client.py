@@ -1,6 +1,15 @@
-"""LinkedIn API client with OAuth 2.0 authentication and rate limiting."""
+"""LinkedIn API client with OAuth 2.0 authentication and rate limiting.
+
+.. deprecated::
+    This module is deprecated. The LinkedIn API no longer supports fetching
+    arbitrary public profiles. Use :class:`scraper_client.LinkedInScraperClient`
+    instead, which uses browser automation to scrape profile data.
+
+    Migration guide: See docs/MIGRATION.md for detailed instructions.
+"""
 
 import asyncio
+import warnings
 from datetime import date, datetime
 from typing import Any, Optional
 from urllib.parse import urlparse
@@ -26,7 +35,18 @@ logger = get_logger(__name__)
 
 
 class LinkedInClient:
-    """Client for interacting with LinkedIn API."""
+    """Client for interacting with LinkedIn API.
+
+    .. deprecated::
+        This class is deprecated. The LinkedIn API no longer supports fetching
+        arbitrary public profiles. Use :class:`scraper_client.LinkedInScraperClient`
+        instead.
+
+        To migrate:
+        1. Obtain your LinkedIn li_at cookie (see docs/MIGRATION.md)
+        2. Use LinkedInScraperClient with cookie authentication
+        3. The scraper provides the same LinkedInProfile output format
+    """
 
     def __init__(
         self,
@@ -40,7 +60,17 @@ class LinkedInClient:
             config: LinkedIn API configuration
             request_delay: Delay between requests in seconds (default: 1.0)
             max_retries: Maximum number of retry attempts (default: 3)
+
+        .. deprecated::
+            Use LinkedInScraperClient instead. See docs/MIGRATION.md.
         """
+        warnings.warn(
+            "LinkedInClient is deprecated. The LinkedIn API no longer supports "
+            "fetching public profiles. Use LinkedInScraperClient with cookie "
+            "authentication instead. See docs/MIGRATION.md for migration instructions.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         self.config = config
         self.request_delay = request_delay
         self.max_retries = max_retries
