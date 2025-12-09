@@ -1,7 +1,7 @@
 """Database models matching the portfolio backend schema."""
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 from typing import Optional
 from uuid import UUID
 
@@ -41,3 +41,58 @@ class ProjectData:
         """Initialize empty list for technologies if None."""
         if self.technologies is None:
             self.technologies = []
+
+
+@dataclass
+class ExperienceData:
+    """Work experience data matching the work_experiences table schema."""
+
+    user_id: UUID
+    company: str
+    position: str
+    location: Optional[str] = None
+    description: Optional[str] = None
+    start_date: Optional[date] = None
+    end_date: Optional[date] = None
+    is_current: bool = False
+    id: Optional[UUID] = None
+
+
+@dataclass
+class EducationData:
+    """Education data matching the educations table schema."""
+
+    user_id: UUID
+    school: str
+    degree: Optional[str] = None
+    field_of_study: Optional[str] = None
+    start_date: Optional[date] = None
+    end_date: Optional[date] = None
+    description: Optional[str] = None
+    grade: Optional[str] = None
+    id: Optional[UUID] = None
+
+
+@dataclass
+class CertificationData:
+    """Certification data matching the certifications table schema."""
+
+    user_id: UUID
+    name: str
+    issuer: str
+    url: Optional[str] = None
+    issue_date: Optional[date] = None
+    expiration_date: Optional[date] = None
+    credential_id: Optional[str] = None
+    id: Optional[UUID] = None
+
+
+@dataclass
+class UserSkillData:
+    """User skill data matching the user_skills table schema."""
+
+    user_id: UUID
+    name: str
+    category: Optional[str] = None
+    proficiency_level: Optional[int] = None
+    id: Optional[UUID] = None

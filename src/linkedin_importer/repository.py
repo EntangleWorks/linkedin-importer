@@ -9,7 +9,14 @@ import asyncpg
 from asyncpg.pool import Pool
 
 from .config import DatabaseConfig
-from .db_models import ProjectData, UserData
+from .db_models import (
+    CertificationData,
+    EducationData,
+    ExperienceData,
+    ProjectData,
+    UserData,
+    UserSkillData,
+)
 from .errors import DatabaseError
 from .logging_config import get_logger, log_error_with_details
 
@@ -342,15 +349,227 @@ class DatabaseRepository:
                 details={"project_id": str(project_id), "error": str(e)},
             )
 
+    async def insert_experiences(self, experiences: list[ExperienceData]) -> list[UUID]:
+        """Insert multiple work experience records.
+
+        Args:
+            experiences: List of experience data to insert
+
+        Returns:
+            List of UUIDs for inserted experiences
+        """
+        if not self._pool:
+            raise DatabaseError(
+                message="Database connection not established",
+                details={"operation": "insert_experiences"},
+            )
+
+        try:
+            async with self._pool.acquire() as conn:
+                experience_ids = []
+
+                for exp in experiences:
+                    exp_id = exp.id or uuid4()
+
+                    query = """
+                        INSERT INTO work_experiences (
+                            id, user_id, company, position, location, description,
+                            start_date, end_date, is_current
+                        )
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                        RETURNING id
+                    """
+
+                    result = await conn.fetchval(
+                        query,
+                        exp_id,
+                        exp.user_id,
+                        exp.company,
+                        exp.position,
+                        exp.location,
+                        exp.description,
+                        exp.start_date,
+                        exp.end_date,
+                        exp.is_current,
+                    )
+                    experience_ids.append(result)
+
+                return experience_ids
+
+        except Exception as e:
+            raise DatabaseError(
+                message="Failed to insert experiences",
+                details={"count": len(experiences), "error": str(e)},
+            )
+
+    async def insert_educations(self, educations: list[EducationData]) -> list[UUID]:
+        """Insert multiple education records.
+
+        Args:
+            educations: List of education data to insert
+
+        Returns:
+            List of UUIDs for inserted educations
+        """
+        if not self._pool:
+            raise DatabaseError(
+                message="Database connection not established",
+                details={"operation": "insert_educations"},
+            )
+
+        try:
+            async with self._pool.acquire() as conn:
+                education_ids = []
+
+                for edu in educations:
+                    edu_id = edu.id or uuid4()
+
+                    query = """
+                        INSERT INTO educations (
+                            id, user_id, school, degree, field_of_study,
+                            start_date, end_date, description, grade
+                        )
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                        RETURNING id
+                    """
+
+                    result = await conn.fetchval(
+                        query,
+                        edu_id,
+                        edu.user_id,
+                        edu.school,
+                        edu.degree,
+                        edu.field_of_study,
+                        edu.start_date,
+                        edu.end_date,
+                        edu.description,
+                        edu.grade,
+                    )
+                    education_ids.append(result)
+
+                return education_ids
+
+        except Exception as e:
+            raise DatabaseError(
+                message="Failed to insert educations",
+                details={"count": len(educations), "error": str(e)},
+            )
+
+    async def insert_certifications(
+        self, certifications: list[CertificationData]
+    ) -> list[UUID]:
+        """Insert multiple certification records.
+
+        Args:
+            certifications: List of certification data to insert
+
+        Returns:
+            List of UUIDs for inserted certifications
+        """
+        if not self._pool:
+            raise DatabaseError(
+                message="Database connection not established",
+                details={"operation": "insert_certifications"},
+            )
+
+        try:
+            async with self._pool.acquire() as conn:
+                cert_ids = []
+
+                for cert in certifications:
+                    cert_id = cert.id or uuid4()
+
+                    query = """
+                        INSERT INTO certifications (
+                            id, user_id, name, issuer, url,
+                            issue_date, expiration_date, credential_id
+                        )
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                        RETURNING id
+                    """
+
+                    result = await conn.fetchval(
+                        query,
+                        cert_id,
+                        cert.user_id,
+                        cert.name,
+                        cert.issuer,
+                        cert.url,
+                        cert.issue_date,
+                        cert.expiration_date,
+                        cert.credential_id,
+                    )
+                    cert_ids.append(result)
+
+                return cert_ids
+
+        except Exception as e:
+            raise DatabaseError(
+                message="Failed to insert certifications",
+                details={"count": len(certifications), "error": str(e)},
+            )
+
+    async def insert_skills(self, skills: list[UserSkillData]) -> list[UUID]:
+        """Insert multiple user skill records.
+
+        Args:
+            skills: List of skill data to insert
+
+        Returns:
+            List of UUIDs for inserted skills
+        """
+        if not self._pool:
+            raise DatabaseError(
+                message="Database connection not established",
+                details={"operation": "insert_skills"},
+            )
+
+        try:
+            async with self._pool.acquire() as conn:
+                skill_ids = []
+
+                for skill in skills:
+                    skill_id = skill.id or uuid4()
+
+                    query = """
+                        INSERT INTO user_skills (
+                            id, user_id, name, category, proficiency_level
+                        )
+                        VALUES ($1, $2, $3, $4, $5)
+                        RETURNING id
+                    """
+
+                    result = await conn.fetchval(
+                        query,
+                        skill_id,
+                        skill.user_id,
+                        skill.name,
+                        skill.category,
+                        skill.proficiency_level,
+                    )
+                    skill_ids.append(result)
+
+                return skill_ids
+
+        except Exception as e:
+            raise DatabaseError(
+                message="Failed to insert skills",
+                details={"count": len(skills), "error": str(e)},
+            )
+
 
 @dataclass
 class ImportResult:
-    """Result of a profile import operation."""
+    """Result of an import operation."""
 
     success: bool
     user_id: Optional[UUID] = None
     projects_count: int = 0
     technologies_count: int = 0
+    experiences_count: int = 0
+    educations_count: int = 0
+    certifications_count: int = 0
+    skills_count: int = 0
     error: Optional[str] = None
 
 
@@ -358,7 +577,13 @@ class TransactionalRepository(DatabaseRepository):
     """Repository with transactional import support."""
 
     async def execute_import(
-        self, user_data: UserData, projects: list[ProjectData]
+        self,
+        user_data: UserData,
+        projects: list[ProjectData],
+        experiences: list[ExperienceData],
+        educations: list[EducationData],
+        certifications: list[CertificationData],
+        skills: list[UserSkillData],
     ) -> ImportResult:
         """Execute full import in a transaction.
 
@@ -368,6 +593,10 @@ class TransactionalRepository(DatabaseRepository):
         Args:
             user_data: User data to import
             projects: List of projects to import
+            experiences: List of experiences to import
+            educations: List of educations to import
+            certifications: List of certifications to import
+            skills: List of skills to import
 
         Returns:
             ImportResult with success status and summary
@@ -402,12 +631,45 @@ class TransactionalRepository(DatabaseRepository):
                             )
                             total_techs += len(set(project.technologies))
 
+                    # 4. Insert experiences
+                    # Update user_id for all records
+                    for exp in experiences:
+                        exp.user_id = user_id
+                    experience_ids = await self._insert_experiences_in_transaction(
+                        conn, experiences
+                    )
+
+                    # 5. Insert educations
+                    for edu in educations:
+                        edu.user_id = user_id
+                    education_ids = await self._insert_educations_in_transaction(
+                        conn, educations
+                    )
+
+                    # 6. Insert certifications
+                    for cert in certifications:
+                        cert.user_id = user_id
+                    certification_ids = (
+                        await self._insert_certifications_in_transaction(
+                            conn, certifications
+                        )
+                    )
+
+                    # 7. Insert skills
+                    for skill in skills:
+                        skill.user_id = user_id
+                    skill_ids = await self._insert_skills_in_transaction(conn, skills)
+
                     # Transaction commits automatically if no exception
                     return ImportResult(
                         success=True,
                         user_id=user_id,
                         projects_count=len(project_ids),
                         technologies_count=total_techs,
+                        experiences_count=len(experience_ids),
+                        educations_count=len(education_ids),
+                        certifications_count=len(certification_ids),
+                        skills_count=len(skill_ids),
                     )
 
         except Exception as e:
@@ -416,6 +678,120 @@ class TransactionalRepository(DatabaseRepository):
                 success=False,
                 error=str(e),
             )
+
+    async def _insert_experiences_in_transaction(
+        self, conn, experiences: list[ExperienceData]
+    ) -> list[UUID]:
+        """Insert experiences within a transaction."""
+        experience_ids = []
+        for exp in experiences:
+            exp_id = exp.id or uuid4()
+            query = """
+                INSERT INTO work_experiences (
+                    id, user_id, company, position, location, description,
+                    start_date, end_date, is_current
+                )
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                RETURNING id
+            """
+            result = await conn.fetchval(
+                query,
+                exp_id,
+                exp.user_id,
+                exp.company,
+                exp.position,
+                exp.location,
+                exp.description,
+                exp.start_date,
+                exp.end_date,
+                exp.is_current,
+            )
+            experience_ids.append(result)
+        return experience_ids
+
+    async def _insert_educations_in_transaction(
+        self, conn, educations: list[EducationData]
+    ) -> list[UUID]:
+        """Insert educations within a transaction."""
+        education_ids = []
+        for edu in educations:
+            edu_id = edu.id or uuid4()
+            query = """
+                INSERT INTO educations (
+                    id, user_id, school, degree, field_of_study,
+                    start_date, end_date, description, grade
+                )
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                RETURNING id
+            """
+            result = await conn.fetchval(
+                query,
+                edu_id,
+                edu.user_id,
+                edu.school,
+                edu.degree,
+                edu.field_of_study,
+                edu.start_date,
+                edu.end_date,
+                edu.description,
+                edu.grade,
+            )
+            education_ids.append(result)
+        return education_ids
+
+    async def _insert_certifications_in_transaction(
+        self, conn, certifications: list[CertificationData]
+    ) -> list[UUID]:
+        """Insert certifications within a transaction."""
+        cert_ids = []
+        for cert in certifications:
+            cert_id = cert.id or uuid4()
+            query = """
+                INSERT INTO certifications (
+                    id, user_id, name, issuer, url,
+                    issue_date, expiration_date, credential_id
+                )
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                RETURNING id
+            """
+            result = await conn.fetchval(
+                query,
+                cert_id,
+                cert.user_id,
+                cert.name,
+                cert.issuer,
+                cert.url,
+                cert.issue_date,
+                cert.expiration_date,
+                cert.credential_id,
+            )
+            cert_ids.append(result)
+        return cert_ids
+
+    async def _insert_skills_in_transaction(
+        self, conn, skills: list[UserSkillData]
+    ) -> list[UUID]:
+        """Insert skills within a transaction."""
+        skill_ids = []
+        for skill in skills:
+            skill_id = skill.id or uuid4()
+            query = """
+                INSERT INTO user_skills (
+                    id, user_id, name, category, proficiency_level
+                )
+                VALUES ($1, $2, $3, $4, $5)
+                RETURNING id
+            """
+            result = await conn.fetchval(
+                query,
+                skill_id,
+                skill.user_id,
+                skill.name,
+                skill.category,
+                skill.proficiency_level,
+            )
+            skill_ids.append(result)
+        return skill_ids
 
     async def _upsert_user_in_transaction(self, conn, user_data: UserData) -> UUID:
         """Upsert user within a transaction."""
