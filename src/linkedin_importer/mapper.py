@@ -2,8 +2,16 @@
 
 import re
 from datetime import datetime
+from uuid import UUID
 
-from .db_models import ProjectData, UserData
+from .db_models import (
+    CertificationData,
+    EducationData,
+    ExperienceData,
+    ProjectData,
+    UserData,
+    UserSkillData,
+)
 from .models import LinkedInProfile
 
 
@@ -33,7 +41,7 @@ def _generate_slug(text: str, suffix: str = "") -> str:
 def _format_bio(profile: LinkedInProfile) -> str:
     """Format user bio from LinkedIn profile data.
 
-    Combines headline, summary, location, industry, education, languages, and honors
+    Combines headline, summary, location, industry, languages, and honors
     into a structured bio text.
 
     Args:
@@ -60,41 +68,6 @@ def _format_bio(profile: LinkedInProfile) -> str:
         metadata.append(f"Industry: {profile.industry}")
     if metadata:
         bio_parts.append("\n".join(metadata))
-
-    # Add education section
-    if profile.education:
-        bio_parts.append("\nEDUCATION\n" + "-" * 9)
-        for edu in profile.education:
-            edu_lines = []
-
-            # Format degree line
-            degree_parts = []
-            if edu.degree:
-                degree_parts.append(edu.degree)
-            if edu.field_of_study:
-                degree_parts.append(f"in {edu.field_of_study}")
-            if degree_parts:
-                degree_parts.append(f"from {edu.school}")
-            else:
-                degree_parts.append(edu.school)
-
-            # Add date range
-            if edu.start_date or edu.end_date:
-                start_year = edu.start_date.year if edu.start_date else "?"
-                end_year = edu.end_date.year if edu.end_date else "Present"
-                degree_parts.append(f"({start_year} - {end_year})")
-
-            edu_lines.append(" ".join(degree_parts))
-
-            # Add grade if available
-            if edu.grade:
-                edu_lines.append(edu.grade)
-
-            # Add activities if available
-            if edu.activities:
-                edu_lines.append(edu.activities)
-
-            bio_parts.append("\n".join(edu_lines))
 
     # Add languages section
     if profile.languages:
@@ -123,230 +96,124 @@ def _format_bio(profile: LinkedInProfile) -> str:
     return "\n\n".join(bio_parts)
 
 
-def _map_position_to_project(position, profile: LinkedInProfile) -> ProjectData:
-    """Map a LinkedIn position to a project entry.
+def _map_position_to_experience(position, user_id: UUID) -> ExperienceData:
+    """Map a LinkedIn position to an experience entry.
 
     Args:
         position: LinkedIn position data
-        profile: Full LinkedIn profile (for linking skills)
+        user_id: UUID of the user
 
     Returns:
-        ProjectData instance
+        ExperienceData instance
     """
-    # Format title as "Title at Company"
-    title = f"{position.title} at {position.company_name}"
-
-    # Generate slug from title
-    slug = _generate_slug(title)
-
-    # Use description as short description
-    description = position.description or ""
-
-    # Build long description with location, employment type, and responsibilities
-    long_desc_parts = []
-    if position.location:
-        long_desc_parts.append(f"Location: {position.location}")
-    if position.employment_type:
-        long_desc_parts.append(f"Employment Type: {position.employment_type}")
+    # Combine description and responsibilities
+    desc_parts = []
+    if position.description:
+        desc_parts.append(position.description)
     if position.responsibilities:
-        long_desc_parts.append(position.responsibilities)
+        desc_parts.append(position.responsibilities)
 
-    long_description = "\n\n".join(long_desc_parts) if long_desc_parts else None
+    description = "\n\n".join(desc_parts) if desc_parts else None
 
-    # Convert dates to datetime
-    created_at = (
-        datetime.combine(position.start_date, datetime.min.time())
-        if position.start_date
-        else None
-    )
-    updated_at = (
-        datetime.combine(position.end_date, datetime.min.time())
-        if position.end_date
-        else datetime.now()
-    )
-
-    return ProjectData(
-        slug=slug,
-        title=title,
+    return ExperienceData(
+        user_id=user_id,
+        company=position.company_name,
+        position=position.title,
+        location=position.location,
         description=description,
-        long_description=long_description,
-        image_url=position.company_logo_url,
-        live_url=position.company_url,
-        github_url=None,
-        featured=False,
-        created_at=created_at,
-        updated_at=updated_at,
-        technologies=[],  # Will be populated later
+        start_date=position.start_date,
+        end_date=position.end_date,
+        is_current=position.end_date is None,
     )
 
 
-def _map_certification_to_project(cert) -> ProjectData:
-    """Map a LinkedIn certification to a project entry.
+def _map_education_to_education(edu, user_id: UUID) -> EducationData:
+    """Map a LinkedIn education entry to an education record.
+
+    Args:
+        edu: LinkedIn education data
+        user_id: UUID of the user
+
+    Returns:
+        EducationData instance
+    """
+    # Combine activities and description
+    desc_parts = []
+    if edu.description:
+        desc_parts.append(edu.description)
+    if edu.activities:
+        desc_parts.append(f"Activities: {edu.activities}")
+
+    description = "\n\n".join(desc_parts) if desc_parts else None
+
+    return EducationData(
+        user_id=user_id,
+        school=edu.school,
+        degree=edu.degree,
+        field_of_study=edu.field_of_study,
+        start_date=edu.start_date,
+        end_date=edu.end_date,
+        description=description,
+        grade=edu.grade,
+    )
+
+
+def _map_certification_to_certification(cert, user_id: UUID) -> CertificationData:
+    """Map a LinkedIn certification to a certification record.
 
     Args:
         cert: LinkedIn certification data
+        user_id: UUID of the user
 
     Returns:
-        ProjectData instance
+        CertificationData instance
     """
-    title = f"Certification: {cert.name}"
-    slug = _generate_slug(title)
-    description = cert.authority
-
-    # Build long description with license number
-    long_desc_parts = []
-    if cert.license_number:
-        long_desc_parts.append(f"License Number: {cert.license_number}")
-
-    long_description = "\n\n".join(long_desc_parts) if long_desc_parts else None
-
-    # Use start date as created_at
-    created_at = (
-        datetime.combine(cert.start_date, datetime.min.time())
-        if cert.start_date
-        else None
-    )
-    updated_at = (
-        datetime.combine(cert.end_date, datetime.min.time())
-        if cert.end_date
-        else created_at
-    )
-
-    return ProjectData(
-        slug=slug,
-        title=title,
-        description=description,
-        long_description=long_description,
-        image_url=None,
-        live_url=cert.url,
-        github_url=None,
-        featured=False,
-        created_at=created_at,
-        updated_at=updated_at,
-        technologies=[],
+    return CertificationData(
+        user_id=user_id,
+        name=cert.name,
+        issuer=cert.authority,
+        url=cert.url,
+        issue_date=cert.start_date,
+        expiration_date=cert.end_date,
+        credential_id=cert.license_number,
     )
 
 
-def _map_publication_to_project(pub) -> ProjectData:
-    """Map a LinkedIn publication to a project entry.
+def _map_skill_to_user_skill(skill, user_id: UUID) -> UserSkillData:
+    """Map a LinkedIn skill to a user skill record.
 
     Args:
-        pub: LinkedIn publication data
+        skill: LinkedIn skill data
+        user_id: UUID of the user
 
     Returns:
-        ProjectData instance
+        UserSkillData instance
     """
-    title = f"Publication: {pub.name}"
-    slug = _generate_slug(title)
-    description = pub.publisher or ""
-    long_description = pub.description
-
-    created_at = (
-        datetime.combine(pub.publication_date, datetime.min.time())
-        if pub.publication_date
-        else None
+    return UserSkillData(
+        user_id=user_id,
+        name=skill.name,
+        category=None,  # LinkedIn scraper doesn't provide category currently
+        proficiency_level=skill.endorsement_count,
     )
-
-    return ProjectData(
-        slug=slug,
-        title=title,
-        description=description,
-        long_description=long_description,
-        image_url=None,
-        live_url=pub.url,
-        github_url=None,
-        featured=False,
-        created_at=created_at,
-        updated_at=created_at,
-        technologies=[],
-    )
-
-
-def _map_volunteer_to_project(vol) -> ProjectData:
-    """Map a LinkedIn volunteer experience to a project entry.
-
-    Args:
-        vol: LinkedIn volunteer experience data
-
-    Returns:
-        ProjectData instance
-    """
-    title = f"Volunteer: {vol.role} at {vol.organization}"
-    slug = _generate_slug(title)
-    description = vol.description or ""
-
-    # Build long description with cause
-    long_desc_parts = []
-    if vol.cause:
-        long_desc_parts.append(f"Cause: {vol.cause}")
-    if vol.description:
-        long_desc_parts.append(vol.description)
-
-    long_description = "\n\n".join(long_desc_parts) if long_desc_parts else None
-
-    created_at = (
-        datetime.combine(vol.start_date, datetime.min.time())
-        if vol.start_date
-        else None
-    )
-    updated_at = (
-        datetime.combine(vol.end_date, datetime.min.time())
-        if vol.end_date
-        else datetime.now()
-    )
-
-    return ProjectData(
-        slug=slug,
-        title=title,
-        description=description,
-        long_description=long_description,
-        image_url=None,
-        live_url=None,
-        github_url=None,
-        featured=False,
-        created_at=created_at,
-        updated_at=updated_at,
-        technologies=[],
-    )
-
-
-def _link_skills_to_projects(
-    projects: list[ProjectData], skills: list, max_recent_projects: int = 3
-) -> None:
-    """Link skills to the most recent projects.
-
-    Modifies projects in-place to add skills as technologies.
-    Prioritizes skills with high endorsement counts.
-
-    Args:
-        projects: List of project data (sorted by date, most recent first)
-        skills: List of LinkedIn skills
-        max_recent_projects: Number of recent projects to link skills to
-    """
-    if not skills or not projects:
-        return
-
-    # Sort skills by endorsement count (highest first)
-    sorted_skills = sorted(skills, key=lambda s: s.endorsement_count or 0, reverse=True)
-
-    # Get skill names
-    skill_names = [skill.name for skill in sorted_skills]
-
-    # Link to most recent projects
-    for project in projects[:max_recent_projects]:
-        project.technologies = skill_names.copy()
 
 
 def map_profile_to_database(
     profile: LinkedInProfile,
-) -> tuple[UserData, list[ProjectData]]:
+) -> tuple[
+    UserData,
+    list[ProjectData],
+    list[ExperienceData],
+    list[EducationData],
+    list[CertificationData],
+    list[UserSkillData],
+]:
     """Map LinkedIn profile to database models.
 
     Args:
         profile: LinkedIn profile data
 
     Returns:
-        Tuple of (UserData, list of ProjectData)
+        Tuple of (UserData, projects, experiences, educations, certifications, skills)
     """
     # Map user data
     user_data = UserData(
@@ -356,64 +223,32 @@ def map_profile_to_database(
         avatar_url=profile.profile_picture_url,
     )
 
-    # Map all positions to projects
+    # Placeholder UUID for linking children (will be updated by repository)
+    placeholder_id = UUID(int=0)
+
+    # Map positions to experiences
+    experiences = [
+        _map_position_to_experience(pos, placeholder_id) for pos in profile.positions
+    ]
+
+    # Map education
+    educations = [
+        _map_education_to_education(edu, placeholder_id) for edu in profile.education
+    ]
+
+    # Map certifications
+    certifications = [
+        _map_certification_to_certification(cert, placeholder_id)
+        for cert in profile.certifications
+    ]
+
+    # Map skills
+    skills = [
+        _map_skill_to_user_skill(skill, placeholder_id) for skill in profile.skills
+    ]
+
+    # Projects list is empty for now as we don't want to overload it with non-project data.
+    # Real portfolio projects should be added manually or via a specific "Projects" section import in the future.
     projects = []
-    slug_counts = {}  # Track slug usage for uniqueness
 
-    for position in profile.positions:
-        project = _map_position_to_project(position, profile)
-        # Ensure unique slug
-        base_slug = project.slug
-        if base_slug in slug_counts:
-            slug_counts[base_slug] += 1
-            project.slug = f"{base_slug}-{slug_counts[base_slug]}"
-        else:
-            slug_counts[base_slug] = 0
-        projects.append(project)
-
-    # Map certifications to projects
-    for cert in profile.certifications:
-        project = _map_certification_to_project(cert)
-        # Ensure unique slug
-        base_slug = project.slug
-        if base_slug in slug_counts:
-            slug_counts[base_slug] += 1
-            project.slug = f"{base_slug}-{slug_counts[base_slug]}"
-        else:
-            slug_counts[base_slug] = 0
-        projects.append(project)
-
-    # Map publications to projects
-    for pub in profile.publications:
-        project = _map_publication_to_project(pub)
-        # Ensure unique slug
-        base_slug = project.slug
-        if base_slug in slug_counts:
-            slug_counts[base_slug] += 1
-            project.slug = f"{base_slug}-{slug_counts[base_slug]}"
-        else:
-            slug_counts[base_slug] = 0
-        projects.append(project)
-
-    # Map volunteer experiences to projects
-    for vol in profile.volunteer:
-        project = _map_volunteer_to_project(vol)
-        # Ensure unique slug
-        base_slug = project.slug
-        if base_slug in slug_counts:
-            slug_counts[base_slug] += 1
-            project.slug = f"{base_slug}-{slug_counts[base_slug]}"
-        else:
-            slug_counts[base_slug] = 0
-        projects.append(project)
-
-    # Sort projects by date (most recent first)
-    projects.sort(
-        key=lambda p: p.created_at or datetime.min,
-        reverse=True,
-    )
-
-    # Link skills to recent projects
-    _link_skills_to_projects(projects, profile.skills)
-
-    return user_data, projects
+    return user_data, projects, experiences, educations, certifications, skills

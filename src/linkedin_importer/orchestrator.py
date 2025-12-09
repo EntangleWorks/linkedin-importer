@@ -232,12 +232,25 @@ async def import_profile_scraper(config: Config) -> ImportResult:
     # Step 6: Map LinkedIn profile to database models
     try:
         log_progress(logger, "Mapping profile data to database models")
-        user_data, projects_data = map_profile_to_database(profile)
+        (
+            user_data,
+            projects_data,
+            experiences_data,
+            educations_data,
+            certifications_data,
+            skills_data,
+        ) = map_profile_to_database(profile)
 
         log_progress(
             logger,
-            f"Mapped {len(projects_data)} projects for user {user_data.email}",
-            details={"projects_count": len(projects_data)},
+            f"Mapped data for user {user_data.email}",
+            details={
+                "projects_count": len(projects_data),
+                "experiences_count": len(experiences_data),
+                "educations_count": len(educations_data),
+                "certifications_count": len(certifications_data),
+                "skills_count": len(skills_data),
+            },
         )
 
     except ValidationError as e:
@@ -290,7 +303,14 @@ async def import_profile_scraper(config: Config) -> ImportResult:
     # Step 8: Execute transactional import
     try:
         log_progress(logger, "Executing database import")
-        result = await repository.execute_import(user_data, projects_data)
+        result = await repository.execute_import(
+            user_data,
+            projects_data,
+            experiences_data,
+            educations_data,
+            certifications_data,
+            skills_data,
+        )
 
         if result.success:
             log_progress(
@@ -300,6 +320,10 @@ async def import_profile_scraper(config: Config) -> ImportResult:
                     "user_id": str(result.user_id) if result.user_id else None,
                     "projects_count": result.projects_count,
                     "technologies_count": result.technologies_count,
+                    "experiences_count": result.experiences_count,
+                    "educations_count": result.educations_count,
+                    "certifications_count": result.certifications_count,
+                    "skills_count": result.skills_count,
                 },
             )
         else:
