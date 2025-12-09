@@ -21,6 +21,35 @@ DEPRECATED_API_REASON = (
 )
 
 
+def _call_load_config(**kwargs):
+    """Helper to call load_config with default values for all parameters."""
+    defaults = {
+        "profile_url": "https://linkedin.com/in/test",
+        "db_url": None,
+        "db_host": None,
+        "db_port": None,
+        "db_name": None,
+        "db_user": None,
+        "db_password": None,
+        "linkedin_api_key": None,
+        "linkedin_api_secret": None,
+        "linkedin_cookie": None,
+        "linkedin_email": None,
+        "linkedin_password": None,
+        "profile_email": None,
+        "headless": False,
+        "chromedriver_path": None,
+        "action_delay": 1.0,
+        "scroll_delay": 0.5,
+        "page_load_timeout": 30,
+        "max_retries": 3,
+        "screenshot_on_error": False,
+        "verbose": False,
+    }
+    defaults.update(kwargs)
+    return load_config(**defaults)
+
+
 # Feature: linkedin-profile-importer, Property 7: Missing configuration detection
 # Validates: Requirements 2.3
 @pytest.mark.skip(reason=DEPRECATED_API_REASON)
@@ -40,18 +69,7 @@ def test_missing_api_key() -> None:
         with pytest.raises(SystemExit) as exc_info:
             # Capture stderr to check error message
             with patch("sys.stderr", new_callable=StringIO) as mock_stderr:
-                load_config(
-                    profile_url="https://linkedin.com/in/test",
-                    db_url=None,
-                    db_host=None,
-                    db_port=None,
-                    db_name=None,
-                    db_user=None,
-                    db_password=None,
-                    linkedin_api_key=None,  # Not provided via CLI
-                    linkedin_api_secret=None,
-                    verbose=False,
-                )
+                _call_load_config()
 
         # Should exit with error code
         assert exc_info.value.code == 1
@@ -74,18 +92,7 @@ def test_missing_api_secret() -> None:
         clear=True,
     ):
         with pytest.raises(SystemExit) as exc_info:
-            load_config(
-                profile_url="https://linkedin.com/in/test",
-                db_url=None,
-                db_host=None,
-                db_port=None,
-                db_name=None,
-                db_user=None,
-                db_password=None,
-                linkedin_api_key=None,
-                linkedin_api_secret=None,  # Not provided via CLI
-                verbose=False,
-            )
+            _call_load_config()
 
         # Should exit with error code
         assert exc_info.value.code == 1
@@ -107,18 +114,7 @@ def test_missing_database_name() -> None:
         clear=True,
     ):
         with pytest.raises(SystemExit) as exc_info:
-            load_config(
-                profile_url="https://linkedin.com/in/test",
-                db_url=None,
-                db_host=None,
-                db_port=None,
-                db_name=None,  # Not provided via CLI
-                db_user=None,
-                db_password=None,
-                linkedin_api_key=None,
-                linkedin_api_secret=None,
-                verbose=False,
-            )
+            _call_load_config()
 
         # Should exit with error code
         assert exc_info.value.code == 1
@@ -140,18 +136,7 @@ def test_missing_database_user() -> None:
         clear=True,
     ):
         with pytest.raises(SystemExit) as exc_info:
-            load_config(
-                profile_url="https://linkedin.com/in/test",
-                db_url=None,
-                db_host=None,
-                db_port=None,
-                db_name=None,
-                db_user=None,  # Not provided via CLI
-                db_password=None,
-                linkedin_api_key=None,
-                linkedin_api_secret=None,
-                verbose=False,
-            )
+            _call_load_config()
 
         # Should exit with error code
         assert exc_info.value.code == 1
@@ -173,18 +158,7 @@ def test_missing_database_password() -> None:
         clear=True,
     ):
         with pytest.raises(SystemExit) as exc_info:
-            load_config(
-                profile_url="https://linkedin.com/in/test",
-                db_url=None,
-                db_host=None,
-                db_port=None,
-                db_name=None,
-                db_user=None,
-                db_password=None,  # Not provided via CLI
-                linkedin_api_key=None,
-                linkedin_api_secret=None,
-                verbose=False,
-            )
+            _call_load_config()
 
         # Should exit with error code
         assert exc_info.value.code == 1
@@ -223,18 +197,7 @@ def test_any_missing_required_param_causes_failure(missing_param: str) -> None:
 
     with patch.dict(os.environ, env, clear=True):
         with pytest.raises(SystemExit) as exc_info:
-            load_config(
-                profile_url="https://linkedin.com/in/test",
-                db_url=None,
-                db_host=None,
-                db_port=None,
-                db_name=None,
-                db_user=None,
-                db_password=None,
-                linkedin_api_key=None,
-                linkedin_api_secret=None,
-                verbose=False,
-            )
+            _call_load_config()
 
         # Should exit with error code
         assert exc_info.value.code == 1
