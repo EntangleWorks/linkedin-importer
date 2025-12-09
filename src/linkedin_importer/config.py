@@ -225,27 +225,8 @@ class ScraperConfig(BaseModel):
         return v
 
 
-# Legacy configuration - kept for backward compatibility
-class LinkedInConfig(BaseModel):
-    """LinkedIn API configuration (DEPRECATED).
-
-    This configuration was used for the API-based approach which is no longer
-    functional. Kept for backward compatibility during migration.
-    """
-
-    api_key: str = Field(default="", description="LinkedIn API key (deprecated)")
-    api_secret: str = Field(default="", description="LinkedIn API secret (deprecated)")
-    access_token: Optional[str] = Field(
-        default=None, description="OAuth access token (deprecated)"
-    )
-
-
 class Config(BaseModel):
-    """Main configuration for LinkedIn Profile Importer.
-
-    This configuration supports both the new scraper-based approach
-    and the legacy API-based approach for backward compatibility.
-    """
+    """Main configuration for LinkedIn Profile Importer."""
 
     # Database configuration (required)
     database: DatabaseConfig = Field(description="Database configuration")
@@ -269,12 +250,6 @@ class Config(BaseModel):
 
     # General settings
     verbose: bool = Field(default=False, description="Enable verbose logging")
-
-    # Legacy configuration (deprecated)
-    linkedin: Optional[LinkedInConfig] = Field(
-        default=None,
-        description="LinkedIn API configuration (deprecated - use auth instead)",
-    )
 
     @field_validator("profile_url")
     @classmethod

@@ -13,7 +13,6 @@ from linkedin_importer.config import (
     AuthMethod,
     Config,
     DatabaseConfig,
-    LinkedInConfig,
     ScraperConfig,
 )
 from linkedin_importer.logging_config import get_logger, setup_logging
@@ -29,10 +28,7 @@ def load_config(
     db_name: str | None,
     db_user: str | None,
     db_password: str | None,
-    # Legacy LinkedIn API options (deprecated)
-    linkedin_api_key: str | None,
-    linkedin_api_secret: str | None,
-    # New scraper authentication options
+    # Scraper authentication options
     linkedin_cookie: str | None,
     linkedin_email: str | None,
     linkedin_password: str | None,
@@ -60,8 +56,6 @@ def load_config(
         db_name: Database name
         db_user: Database user
         db_password: Database password
-        linkedin_api_key: LinkedIn API key (deprecated)
-        linkedin_api_secret: LinkedIn API secret (deprecated)
         linkedin_cookie: LinkedIn li_at session cookie (preferred auth)
         linkedin_email: LinkedIn email (fallback auth)
         linkedin_password: LinkedIn password (fallback auth)
@@ -94,14 +88,7 @@ def load_config(
         "password": db_password or os.getenv("DB_PASSWORD", ""),
     }
 
-    # Legacy LinkedIn configuration (deprecated, kept for backward compatibility)
-    linkedin_config_dict = {
-        "api_key": linkedin_api_key or os.getenv("LINKEDIN_API_KEY", ""),
-        "api_secret": linkedin_api_secret or os.getenv("LINKEDIN_API_SECRET", ""),
-        "access_token": os.getenv("LINKEDIN_ACCESS_TOKEN"),
-    }
-
-    # New scraper authentication configuration
+    # Scraper authentication configuration
     # CLI args take precedence over environment variables
     auth_cookie = linkedin_cookie or os.getenv("LINKEDIN_COOKIE")
     auth_email = linkedin_email or os.getenv("LINKEDIN_EMAIL")
@@ -142,7 +129,6 @@ def load_config(
 
     try:
         database_config = DatabaseConfig(**db_config_dict)
-        linkedin_config = LinkedInConfig(**linkedin_config_dict)
 
         # Build auth config if any auth credentials are provided
         auth_config = None
@@ -167,7 +153,6 @@ def load_config(
 
         config = Config(
             database=database_config,
-            linkedin=linkedin_config,
             auth=auth_config,
             scraper=scraper_config,
             profile_url=profile_url,
@@ -183,25 +168,14 @@ def load_config(
 
 @click.command()
 @click.argument("profile_url")
-# Database options (existing)
+# Database options
 @click.option("--db-url", envvar="DATABASE_URL", help="Database connection URL")
 @click.option("--db-host", envvar="DB_HOST", help="Database host")
 @click.option("--db-port", envvar="DB_PORT", type=int, help="Database port")
 @click.option("--db-name", envvar="DB_NAME", help="Database name")
 @click.option("--db-user", envvar="DB_USER", help="Database user")
 @click.option("--db-password", envvar="DB_PASSWORD", help="Database password")
-# Legacy LinkedIn API options (deprecated)
-@click.option(
-    "--linkedin-api-key",
-    envvar="LINKEDIN_API_KEY",
-    help="LinkedIn API key (deprecated)",
-)
-@click.option(
-    "--linkedin-api-secret",
-    envvar="LINKEDIN_API_SECRET",
-    help="LinkedIn API secret (deprecated)",
-)
-# Authentication options (NEW)
+# Authentication options
 @click.option(
     "--linkedin-cookie",
     envvar="LINKEDIN_COOKIE",
@@ -222,7 +196,7 @@ def load_config(
     envvar="PROFILE_EMAIL",
     help="Email address for the imported profile (LinkedIn doesn't expose emails)",
 )
-# Browser configuration options (NEW)
+# Browser configuration options
 @click.option(
     "--headless/--no-headless",
     default=False,
@@ -274,9 +248,6 @@ def main(
     db_name: str | None,
     db_user: str | None,
     db_password: str | None,
-    # Legacy LinkedIn API options
-    linkedin_api_key: str | None,
-    linkedin_api_secret: str | None,
     # Authentication options
     linkedin_cookie: str | None,
     linkedin_email: str | None,
@@ -363,8 +334,6 @@ def main(
         db_name=db_name,
         db_user=db_user,
         db_password=db_password,
-        linkedin_api_key=linkedin_api_key,
-        linkedin_api_secret=linkedin_api_secret,
         linkedin_cookie=linkedin_cookie,
         linkedin_email=linkedin_email,
         linkedin_password=linkedin_password,

@@ -1,6 +1,8 @@
 # Migration Guide: API to Scraper
 
-This guide helps you migrate from the deprecated LinkedIn API-based approach to the new scraper-based approach.
+This guide documents the migration from the old LinkedIn API-based approach to the new scraper-based approach.
+
+> **Note:** The deprecated API code has been completely removed. This document is kept for historical reference and to help users who may have old configurations.
 
 ## Why This Change?
 
@@ -165,39 +167,34 @@ env:
    - `LINKEDIN_COOKIE` - Your li_at cookie value
    - `PROFILE_EMAIL` - Email for the imported profile
 
-## Deprecated Features
+## Removed Features
 
-The following features are deprecated and will be removed in a future version:
+The following features have been removed:
 
-### CLI Options (Deprecated)
-
-```bash
-# These will show a deprecation warning
---linkedin-api-key     # Use --linkedin-cookie instead
---linkedin-api-secret  # No longer needed
-```
-
-### Environment Variables (Deprecated)
+### CLI Options (Removed)
 
 ```bash
-LINKEDIN_API_KEY       # Use LINKEDIN_COOKIE instead
-LINKEDIN_API_SECRET    # No longer needed
-LINKEDIN_ACCESS_TOKEN  # No longer needed
+# These options no longer exist
+--linkedin-api-key     # Removed - use --linkedin-cookie instead
+--linkedin-api-secret  # Removed
 ```
 
-### Code (Deprecated)
+### Environment Variables (Removed)
 
-```python
-# In config.py
-class LinkedInConfig:  # Deprecated - use AuthConfig instead
-    api_key: str
-    api_secret: str
-    access_token: Optional[str]
-
-# In linkedin_client.py
-class LinkedInClient:  # Deprecated - use LinkedInScraperClient instead
-    ...
+```bash
+# These environment variables are no longer recognized
+LINKEDIN_API_KEY       # Removed - use LINKEDIN_COOKIE instead
+LINKEDIN_API_SECRET    # Removed
+LINKEDIN_ACCESS_TOKEN  # Removed
 ```
+
+### Code (Removed)
+
+The following classes and files have been removed:
+
+- `LinkedInConfig` class - replaced by `AuthConfig`
+- `linkedin_client.py` module - replaced by `scraper_client.py`
+- `LinkedInClient` class - replaced by `LinkedInScraperClient`
 
 ## Troubleshooting Migration Issues
 
@@ -249,22 +246,9 @@ The scraper extracts what's visible on the profile page:
 
 ## Getting Help
 
-If you encounter issues migrating:
+If you encounter issues:
 
 1. **Check the README**: [README.md](../README.md) has detailed setup instructions
 2. **Review examples**: [USAGE_EXAMPLES.md](USAGE_EXAMPLES.md) has common use cases
 3. **Manual testing**: [manual_testing_checklist.md](manual_testing_checklist.md) can help debug issues
 4. **Open an issue**: Report bugs or request help on GitHub
-
-## Rollback
-
-If you need to temporarily use the old API approach (if you still have valid credentials):
-
-```bash
-# The old LinkedInConfig is still available but deprecated
-uv run linkedin-importer https://linkedin.com/in/johndoe \
-    --linkedin-api-key "your-key" \
-    --linkedin-api-secret "your-secret"
-```
-
-**Warning:** The API approach will be removed in a future version. Please migrate to the scraper approach.

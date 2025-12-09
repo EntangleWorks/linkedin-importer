@@ -1,23 +1,12 @@
-"""Property-based tests for configuration precedence.
-
-Note: Tests for api_key and api_secret are marked as skipped because the
-API-based approach has been deprecated in favor of web scraping.
-"""
+"""Property-based tests for configuration precedence."""
 
 import os
 from unittest.mock import patch
 
-import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from linkedin_importer.cli import load_config
-
-# Skip reason for deprecated API tests
-DEPRECATED_API_REASON = (
-    "LinkedIn API configuration (api_key/api_secret) is deprecated. "
-    "The scraper now uses cookie-based or credentials-based authentication."
-)
 
 
 def _call_load_config(**kwargs):
@@ -30,8 +19,6 @@ def _call_load_config(**kwargs):
         "db_name": None,
         "db_user": None,
         "db_password": None,
-        "linkedin_api_key": None,
-        "linkedin_api_secret": None,
         "linkedin_cookie": None,
         "linkedin_email": None,
         "linkedin_password": None,
@@ -82,32 +69,6 @@ def test_cli_precedence_over_env_db_name(cli_value: str, env_value: str) -> None
 
         # CLI value should be used, not env value
         assert config.database.name == cli_value
-
-
-# Feature: linkedin-profile-importer, Property 6: Configuration loading precedence
-# Validates: Requirements 2.1, 2.2, 3.1, 3.2
-@pytest.mark.skip(reason=DEPRECATED_API_REASON)
-@settings(deadline=None)
-@given(
-    cli_value=valid_text,
-    env_value=valid_text,
-)
-def test_cli_precedence_over_env_api_key(cli_value: str, env_value: str) -> None:
-    """For any API key provided via CLI and env, CLI value should take precedence."""
-    with patch.dict(
-        os.environ,
-        {
-            "LINKEDIN_API_KEY": env_value,
-            "LINKEDIN_API_SECRET": "test_secret",
-            "DB_NAME": "testdb",
-            "DB_USER": "testuser",
-            "DB_PASSWORD": "testpass",
-        },
-    ):
-        config = _call_load_config(linkedin_api_key=cli_value)
-
-        # CLI value should be used (after stripping), not env value
-        assert config.linkedin.api_key == cli_value.strip()
 
 
 # Feature: linkedin-profile-importer, Property 6: Configuration loading precedence

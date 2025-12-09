@@ -460,7 +460,7 @@ linkedin-importer/
 │       ├── errors.py             # Custom error classes
 │       ├── scraper_client.py     # LinkedIn scraper client (Selenium)
 │       ├── scraper_adapter.py    # Data adapter (Person → LinkedInProfile)
-│       ├── linkedin_client.py    # [DEPRECATED] API client
+│       ├── scraper_errors.py     # Scraper-specific error classes
 │       ├── logging_config.py     # Logging configuration
 │       ├── mapper.py             # LinkedIn → Database mapper
 │       ├── models.py             # LinkedIn data models
