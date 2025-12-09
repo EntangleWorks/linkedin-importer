@@ -12,7 +12,7 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from linkedin_importer.config import Config, DatabaseConfig, LinkedInConfig
+from linkedin_importer.config import AuthConfig, Config, DatabaseConfig
 from linkedin_importer.db_models import ProjectData, UserData
 from linkedin_importer.models import LinkedInProfile
 from linkedin_importer.orchestrator import import_profile
@@ -48,7 +48,7 @@ def test_success_status_completeness(
 
     This validates Requirements 1.4 (return success status with summary).
     """
-    # Arrange: Create mock config
+    # Arrange: Create mock config with scraper auth
     config = Config(
         database=DatabaseConfig(
             host="localhost",
@@ -57,12 +57,11 @@ def test_success_status_completeness(
             user="testuser",
             password="testpass",
         ),
-        linkedin=LinkedInConfig(
-            api_key="test_key",
-            api_secret="test_secret",
-            access_token="test_token",
+        auth=AuthConfig(
+            cookie="test_li_at_cookie",
         ),
         profile_url="https://www.linkedin.com/in/testuser",
+        profile_email=email,
         verbose=False,
     )
 
@@ -108,19 +107,29 @@ def test_success_status_completeness(
 
     # Act: Run import with mocks
     with (
-        patch("linkedin_importer.orchestrator.LinkedInClient") as MockLinkedInClient,
+        patch(
+            "linkedin_importer.orchestrator.LinkedInScraperClient"
+        ) as MockScraperClient,
+        patch(
+            "linkedin_importer.orchestrator.convert_person_to_profile"
+        ) as mock_convert,
         patch("linkedin_importer.orchestrator.map_profile_to_database") as mock_mapper,
         patch(
             "linkedin_importer.orchestrator.TransactionalRepository"
         ) as MockRepository,
     ):
-        # Configure LinkedIn client mock
-        mock_client_instance = AsyncMock()
-        mock_client_instance.__aenter__.return_value = mock_client_instance
-        mock_client_instance.__aexit__.return_value = None
-        mock_client_instance.authenticate = AsyncMock()
-        mock_client_instance.get_profile = AsyncMock(return_value=mock_profile)
-        MockLinkedInClient.return_value = mock_client_instance
+        # Configure scraper client mock
+        mock_scraper_instance = MagicMock()
+        mock_scraper_instance.get_driver_info.return_value = {"chrome_version": "120"}
+        mock_scraper_instance.authenticate.return_value = True
+        mock_scraper_instance.get_profile.return_value = (
+            MagicMock()
+        )  # linkedin_scraper Person
+        mock_scraper_instance.close.return_value = None
+        MockScraperClient.return_value = mock_scraper_instance
+
+        # Configure conversion mock
+        mock_convert.return_value = mock_profile
 
         # Configure mapper mock
         mock_mapper.return_value = (mock_user_data, mock_projects)
@@ -226,9 +235,68 @@ def test_standalone_operation():
     assert "SUCCESS" in result_import.stdout, "Import test should print SUCCESS"
 
 
+# Test: Missing auth config returns error
+def test_missing_auth_config_returns_error():
+    """When no auth config is provided, import should return an error."""
+    # Arrange: Create config without auth
+    config = Config(
+        database=DatabaseConfig(
+            host="localhost",
+            port=5432,
+            name="testdb",
+            user="testuser",
+            password="testpass",
+        ),
+        profile_url="https://www.linkedin.com/in/testuser",
+        verbose=False,
+    )
+
+    # Act: Execute import
+    result = asyncio.run(import_profile(config))
+
+    # Assert: Should fail with appropriate error
+    assert result.success is False
+    assert result.error is not None
+    assert "authentication" in result.error.lower() or "cookie" in result.error.lower()
+
+
+# Test: Missing profile email returns error
+def test_missing_profile_email_returns_error():
+    """When profile_email is not provided with auth, import should return an error."""
+    # Arrange: Create config with auth but without profile_email
+    # Note: We need to bypass Pydantic validation to test orchestrator behavior
+    config = Config(
+        database=DatabaseConfig(
+            host="localhost",
+            port=5432,
+            name="testdb",
+            user="testuser",
+            password="testpass",
+        ),
+        auth=AuthConfig(
+            cookie="test_cookie",
+        ),
+        profile_url="https://www.linkedin.com/in/testuser",
+        profile_email="test@example.com",  # Required by Pydantic
+        verbose=False,
+    )
+    # Manually set profile_email to None to test orchestrator validation
+    object.__setattr__(config, "profile_email", None)
+
+    # Act: Execute import
+    result = asyncio.run(import_profile(config))
+
+    # Assert: Should fail with appropriate error
+    assert result.success is False
+    assert result.error is not None
+    assert "profile_email" in result.error.lower() or "email" in result.error.lower()
+
+
 # Additional test: Verify error cases return proper ImportResult
 @given(
-    error_type=st.sampled_from(["auth", "api", "database", "validation", "unknown"]),
+    error_type=st.sampled_from(
+        ["scraper", "auth", "database", "validation", "unknown"]
+    ),
     error_message=st.text(min_size=10, max_size=100),
 )
 @settings(max_examples=10, deadline=None)
@@ -244,7 +312,7 @@ def test_error_cases_return_proper_result(error_type: str, error_message: str):
 
     This validates Requirements 1.5 (descriptive error messages).
     """
-    # Arrange: Create mock config
+    # Arrange: Create mock config with scraper auth
     config = Config(
         database=DatabaseConfig(
             host="localhost",
@@ -253,43 +321,42 @@ def test_error_cases_return_proper_result(error_type: str, error_message: str):
             user="testuser",
             password="testpass",
         ),
-        linkedin=LinkedInConfig(
-            api_key="test_key",
-            api_secret="test_secret",
-            access_token="test_token",
+        auth=AuthConfig(
+            cookie="test_cookie",
         ),
         profile_url="https://www.linkedin.com/in/testuser",
+        profile_email="test@example.com",
         verbose=False,
     )
 
     # Act: Simulate error based on type
-    with patch("linkedin_importer.orchestrator.LinkedInClient") as MockLinkedInClient:
-        # Configure client mock to raise appropriate error
-        mock_client_instance = AsyncMock()
-        mock_client_instance.__aenter__.return_value = mock_client_instance
-        mock_client_instance.__aexit__.return_value = None
+    with patch(
+        "linkedin_importer.orchestrator.LinkedInScraperClient"
+    ) as MockScraperClient:
+        # Configure scraper mock to raise appropriate error
+        mock_scraper_instance = MagicMock()
+        mock_scraper_instance.get_driver_info.return_value = {"chrome_version": "120"}
 
         if error_type == "auth":
-            from linkedin_importer.errors import AuthError
+            from linkedin_importer.scraper_errors import ScraperAuthError
 
-            mock_client_instance.authenticate = AsyncMock(
-                side_effect=AuthError(message=error_message, details={})
+            mock_scraper_instance.authenticate.side_effect = ScraperAuthError(
+                message=error_message
             )
-        elif error_type == "api":
-            from linkedin_importer.errors import APIError
+        elif error_type == "scraper":
+            from linkedin_importer.scraper_errors import ScraperError
 
-            mock_client_instance.authenticate = AsyncMock()
-            mock_client_instance.get_profile = AsyncMock(
-                side_effect=APIError(message=error_message, details={})
+            mock_scraper_instance.authenticate.return_value = True
+            mock_scraper_instance.get_profile.side_effect = ScraperError(
+                message=error_message
             )
         elif error_type in ["database", "validation", "unknown"]:
-            # For these, we'll simulate generic exception
-            mock_client_instance.authenticate = AsyncMock()
-            mock_client_instance.get_profile = AsyncMock(
-                side_effect=Exception(error_message)
-            )
+            # For these, we'll simulate generic exception during scraping
+            mock_scraper_instance.authenticate.return_value = True
+            mock_scraper_instance.get_profile.side_effect = Exception(error_message)
 
-        MockLinkedInClient.return_value = mock_client_instance
+        mock_scraper_instance.close.return_value = None
+        MockScraperClient.return_value = mock_scraper_instance
 
         # Execute import
         result = asyncio.run(import_profile(config))

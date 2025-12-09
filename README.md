@@ -1,37 +1,47 @@
 # LinkedIn Profile Importer
 
-A standalone CLI tool that fetches professional profile data from LinkedIn and populates a PostgreSQL database for your portfolio website.
+A CLI tool that imports your LinkedIn profile data into a PostgreSQL database using browser automation. This tool is designed to work with the portfolio backend service, mapping LinkedIn profile sections to the appropriate database tables.
 
 ## Table of Contents
 
 - [Overview](#overview)
 - [Features](#features)
 - [Installation](#installation)
+- [Authentication](#authentication)
+  - [Cookie Authentication (Recommended)](#cookie-authentication-recommended)
+  - [Email/Password Authentication](#emailpassword-authentication)
+  - [Two-Factor Authentication (2FA)](#two-factor-authentication-2fa)
 - [Configuration](#configuration)
   - [Environment Variables](#environment-variables)
-  - [CLI Arguments](#cli-arguments)
+  - [CLI Options](#cli-options)
 - [Usage](#usage)
-  - [Basic Usage](#basic-usage)
-  - [Advanced Examples](#advanced-examples)
+  - [Quick Start](#quick-start)
+  - [Examples](#examples)
 - [Database Schema Mapping](#database-schema-mapping)
 - [Error Handling](#error-handling)
+- [Troubleshooting](#troubleshooting)
 - [Development](#development)
 - [Project Structure](#project-structure)
-- [Troubleshooting](#troubleshooting)
+- [Migration from API](#migration-from-api)
 - [License](#license)
 
 ## Overview
 
-The LinkedIn Profile Importer is a Python CLI tool that automates the process of importing your LinkedIn profile data into a PostgreSQL database. It's designed to work with the portfolio backend service, mapping LinkedIn profile sections to the appropriate database tables.
+The LinkedIn Profile Importer uses Selenium WebDriver to scrape your LinkedIn profile data and imports it into a PostgreSQL database. It supports two authentication methods: cookie injection (recommended) and email/password login.
+
+> **Note:** This tool replaces the previous API-based approach, which is no longer functional due to LinkedIn API restrictions. See [Migration from API](#migration-from-api) for details.
 
 ## Features
 
-- **Complete Profile Import**: Fetches all profile sections including work experience, education, skills, certifications, publications, and volunteer work
+- **Browser-Based Scraping**: Uses Selenium WebDriver with Chrome for reliable data extraction
+- **Cookie Authentication**: Bypass 2FA and CAPTCHA by using your existing LinkedIn session cookie
+- **Email/Password Fallback**: Traditional login with support for manual 2FA intervention
+- **Complete Profile Import**: Fetches work experience, education, skills, and more
 - **Automatic Mapping**: Intelligently maps LinkedIn data to your portfolio database schema
-- **Transaction Safety**: All database operations are wrapped in transactions with automatic rollback on failure
-- **Rate Limit Handling**: Respects LinkedIn API rate limits with automatic retry and exponential backoff
-- **Flexible Configuration**: Supports both environment variables and CLI arguments
-- **Verbose Logging**: Optional detailed logging for debugging and monitoring
+- **Transaction Safety**: All database operations are wrapped in transactions with automatic rollback
+- **Headless Mode**: Run in headless mode for server/CI environments
+- **Anti-Detection**: Configurable delays and human-like behavior to avoid detection
+- **Screenshot on Error**: Optional screenshot capture for debugging failed scrapes
 
 ## Installation
 
@@ -41,8 +51,9 @@ This project uses [uv](https://github.com/astral-sh/uv) for package management.
 
 - Python 3.11 or higher
 - [uv](https://github.com/astral-sh/uv) package manager
+- Google Chrome browser (latest version recommended)
 - PostgreSQL database (for the portfolio backend)
-- LinkedIn API credentials (API key and secret)
+- A LinkedIn account
 
 ### Install uv
 
@@ -68,231 +79,341 @@ uv sync
 uv sync --all-groups
 ```
 
-## Configuration
+### ChromeDriver
 
-The importer can be configured through environment variables, a `.env` file, or CLI arguments. CLI arguments take precedence over environment variables.
+ChromeDriver is managed automatically via `webdriver-manager`. If you prefer to use a specific ChromeDriver:
+
+```bash
+# Set the path to your ChromeDriver
+export CHROMEDRIVER_PATH=/path/to/chromedriver
+```
+
+## Authentication
+
+LinkedIn requires authentication to access profile data. Two methods are supported:
+
+### Cookie Authentication (Recommended)
+
+Cookie authentication uses your existing LinkedIn session cookie (`li_at`) to authenticate. This method:
+
+- ✅ **Bypasses 2FA completely**
+- ✅ **Avoids CAPTCHA challenges**
+- ✅ **Is faster and more reliable**
+- ✅ **Works in headless mode**
+
+#### How to Obtain the `li_at` Cookie
+
+1. **Open Chrome** and navigate to [linkedin.com](https://www.linkedin.com)
+2. **Log in** to your LinkedIn account (complete any 2FA if prompted)
+3. **Open Developer Tools** (press F12 or right-click → Inspect)
+4. **Navigate to Application tab** → Storage → Cookies → `www.linkedin.com`
+5. **Find the `li_at` cookie** and copy its value
+
+![Cookie Location](docs/images/cookie-location.png) *(if you have this image)*
+
+The cookie value looks like: `AQEDAQNv...` (a long alphanumeric string)
+
+#### Set the Cookie
+
+```bash
+# Via environment variable (recommended for security)
+export LINKEDIN_COOKIE="AQEDAQNv..."
+
+# Or in your .env file
+LINKEDIN_COOKIE=AQEDAQNv...
+```
+
+> **Security Note:** Never commit your `li_at` cookie to version control. Add `.env` to your `.gitignore`.
+
+#### Cookie Validity
+
+- The `li_at` cookie typically lasts for **1 year**
+- LinkedIn may invalidate it earlier if unusual activity is detected
+- If authentication fails, obtain a fresh cookie
+
+### Email/Password Authentication
+
+If you prefer not to use cookie authentication, you can provide your LinkedIn credentials:
+
+```bash
+export LINKEDIN_EMAIL="your.email@example.com"
+export LINKEDIN_PASSWORD="your-password"
+```
+
+**Important considerations:**
+
+- ⚠️ May trigger 2FA or CAPTCHA challenges
+- ⚠️ Requires visible browser mode for manual intervention
+- ⚠️ Less reliable than cookie authentication
+- ⚠️ Not recommended for headless/server environments
+
+### Two-Factor Authentication (2FA)
+
+When using email/password authentication with 2FA enabled:
+
+1. **Run in visible browser mode** (don't use `--headless`)
+2. The browser will show the 2FA challenge
+3. **Enter your verification code** manually
+4. The script will detect successful login and continue
+
+```bash
+# Run with visible browser for 2FA
+uv run linkedin-importer https://linkedin.com/in/johndoe \
+    --profile-email john@example.com \
+    --no-headless
+```
+
+The script waits up to 120 seconds for 2FA completion.
+
+## Configuration
 
 ### Environment Variables
 
-Copy `.env.example` to `.env` and configure your credentials:
+Copy `.env.example` to `.env` and configure:
 
 ```bash
 cp .env.example .env
 ```
 
-#### Required Variables
+#### Authentication (Required)
 
-| Variable | Description | Example |
-|----------|-------------|---------|
-| `LINKEDIN_API_KEY` | Your LinkedIn API application key | `86a5xyz123...` |
-| `LINKEDIN_API_SECRET` | Your LinkedIn API application secret | `AbCdEf123...` |
+| Variable | Description | Required |
+|----------|-------------|----------|
+| `LINKEDIN_COOKIE` | LinkedIn `li_at` session cookie (preferred) | One of these |
+| `LINKEDIN_EMAIL` | LinkedIn email address (fallback) | pairs is |
+| `LINKEDIN_PASSWORD` | LinkedIn password (fallback) | required |
+
+#### Profile (Required for Scraping)
+
+| Variable | Description | Required |
+|----------|-------------|----------|
+| `PROFILE_EMAIL` | Email to associate with imported profile | Yes |
+
+> **Note:** LinkedIn does not expose email addresses in profiles, so you must specify the email for the imported user record.
 
 #### Database Configuration
-
-You can configure the database using either a connection URL or individual parameters:
-
-**Option 1: Connection URL**
 
 | Variable | Description | Example |
 |----------|-------------|---------|
 | `DATABASE_URL` | Full PostgreSQL connection URL | `postgresql://user:pass@localhost:5432/portfolio` |
 
-**Option 2: Individual Parameters**
-
-| Variable | Description | Default | Example |
-|----------|-------------|---------|---------|
-| `DB_HOST` | Database host | `localhost` | `db.example.com` |
-| `DB_PORT` | Database port | `5432` | `5432` |
-| `DB_NAME` | Database name | (required) | `portfolio` |
-| `DB_USER` | Database username | (required) | `postgres` |
-| `DB_PASSWORD` | Database password | (required) | `mysecretpassword` |
-
-#### Optional Variables
+Or use individual parameters:
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `LINKEDIN_ACCESS_TOKEN` | Pre-obtained OAuth access token | (none) |
+| `DB_HOST` | Database host | `localhost` |
+| `DB_PORT` | Database port | `5432` |
+| `DB_NAME` | Database name | (required) |
+| `DB_USER` | Database username | (required) |
+| `DB_PASSWORD` | Database password | (required) |
 
-### CLI Arguments
+#### Browser Settings
 
-All configuration can also be provided via CLI arguments:
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `HEADLESS` | Run browser in headless mode | `false` |
+| `CHROMEDRIVER_PATH` | Path to ChromeDriver | (auto-download) |
+| `ACTION_DELAY` | Delay between actions (seconds) | `1.0` |
+| `SCROLL_DELAY` | Delay between scrolls (seconds) | `0.5` |
+| `PAGE_LOAD_TIMEOUT` | Page load timeout (seconds) | `30` |
+| `MAX_RETRIES` | Maximum retry attempts | `3` |
+| `SCREENSHOT_ON_ERROR` | Capture screenshots on error | `false` |
 
-| Argument | Description | Environment Fallback |
-|----------|-------------|---------------------|
-| `PROFILE_URL` | LinkedIn profile URL or username (required) | - |
-| `--db-url` | Database connection URL | `DATABASE_URL` |
-| `--db-host` | Database host | `DB_HOST` |
-| `--db-port` | Database port | `DB_PORT` |
-| `--db-name` | Database name | `DB_NAME` |
-| `--db-user` | Database user | `DB_USER` |
-| `--db-password` | Database password | `DB_PASSWORD` |
-| `--linkedin-api-key` | LinkedIn API key | `LINKEDIN_API_KEY` |
-| `--linkedin-api-secret` | LinkedIn API secret | `LINKEDIN_API_SECRET` |
-| `--verbose`, `-v` | Enable verbose logging | `false` |
+### CLI Options
+
+```bash
+uv run linkedin-importer --help
+```
+
+| Option | Description |
+|--------|-------------|
+| `--linkedin-cookie` | LinkedIn li_at session cookie |
+| `--linkedin-email` | LinkedIn email (fallback auth) |
+| `--linkedin-password` | LinkedIn password (fallback auth) |
+| `--profile-email` | Email for imported profile (required) |
+| `--headless` / `--no-headless` | Browser visibility |
+| `--action-delay` | Delay between actions (seconds) |
+| `--scroll-delay` | Delay between scrolls (seconds) |
+| `--page-load-timeout` | Page load timeout (seconds) |
+| `--max-retries` | Maximum retry attempts |
+| `--screenshot-on-error` | Capture screenshot on error |
+| `--chromedriver-path` | Path to ChromeDriver |
+| `--db-url` | Database connection URL |
+| `--db-host`, `--db-port`, etc. | Individual database params |
+| `--verbose`, `-v` | Enable verbose logging |
 
 ## Usage
 
-### Basic Usage
+### Quick Start
+
+1. **Set up your environment:**
+   ```bash
+   cd linkedin-importer
+   cp .env.example .env
+   # Edit .env with your cookie and database settings
+   ```
+
+2. **Run the importer:**
+   ```bash
+   uv run linkedin-importer https://linkedin.com/in/johndoe \
+       --profile-email john@example.com
+   ```
+
+### Examples
+
+#### Cookie Authentication (Recommended)
 
 ```bash
-# Import a LinkedIn profile using environment variables for credentials
-uv run linkedin-importer https://www.linkedin.com/in/johndoe
-
-# With verbose logging
-uv run linkedin-importer https://www.linkedin.com/in/johndoe --verbose
+# Set cookie and run
+export LINKEDIN_COOKIE="AQEDAQNv..."
+uv run linkedin-importer https://linkedin.com/in/johndoe \
+    --profile-email john@example.com \
+    --headless
 ```
 
-### Advanced Examples
-
-#### Override Database Credentials
+#### Email/Password with 2FA
 
 ```bash
-uv run linkedin-importer https://www.linkedin.com/in/johndoe \
-  --db-host localhost \
-  --db-port 5432 \
-  --db-name portfolio \
-  --db-user postgres \
-  --db-password mypassword
+# Visible browser for manual 2FA intervention
+uv run linkedin-importer https://linkedin.com/in/johndoe \
+    --linkedin-email user@example.com \
+    --linkedin-password mypassword \
+    --profile-email john@example.com \
+    --no-headless
 ```
 
-#### Use Database URL
+#### With Custom Delays (Safer)
 
 ```bash
-uv run linkedin-importer https://www.linkedin.com/in/johndoe \
-  --db-url "postgresql://postgres:mypassword@localhost:5432/portfolio"
+uv run linkedin-importer https://linkedin.com/in/johndoe \
+    --profile-email john@example.com \
+    --action-delay 2.0 \
+    --scroll-delay 1.0 \
+    --headless
 ```
 
-#### Override LinkedIn API Credentials
+#### Debug Mode with Screenshots
 
 ```bash
-uv run linkedin-importer https://www.linkedin.com/in/johndoe \
-  --linkedin-api-key "your-api-key" \
-  --linkedin-api-secret "your-api-secret"
+uv run linkedin-importer https://linkedin.com/in/johndoe \
+    --profile-email john@example.com \
+    --screenshot-on-error \
+    --verbose \
+    --no-headless
 ```
 
-#### Full Configuration via CLI
+#### Using Docker PostgreSQL
 
 ```bash
-uv run linkedin-importer https://www.linkedin.com/in/johndoe \
-  --db-host db.example.com \
-  --db-port 5432 \
-  --db-name portfolio_prod \
-  --db-user app_user \
-  --db-password secretpassword \
-  --linkedin-api-key "your-api-key" \
-  --linkedin-api-secret "your-api-secret" \
-  --verbose
-```
+# Start the database
+docker compose up -d postgres
 
-#### Using a Username Instead of Full URL
-
-```bash
-# Both formats are supported
-uv run linkedin-importer johndoe
-uv run linkedin-importer https://www.linkedin.com/in/johndoe
+# Run import
+uv run linkedin-importer https://linkedin.com/in/johndoe \
+    --profile-email john@example.com \
+    --db-url "postgresql://portfolio_user:portfolio_pass@localhost:5432/portfolio"
 ```
 
 ## Database Schema Mapping
 
-The importer maps LinkedIn profile data to the portfolio database schema as follows:
+The importer maps LinkedIn profile data to the portfolio database schema:
 
 ### Users Table
 
-LinkedIn basic profile information is mapped to the `users` table:
+| LinkedIn Field | Database Column |
+|----------------|-----------------|
+| First + Last Name | `name` |
+| `profile_email` (CLI arg) | `email` |
+| Profile Picture | `avatar_url` |
+| Headline + Summary | `bio` |
 
-| LinkedIn Field | Database Column | Description |
-|----------------|-----------------|-------------|
-| `firstName` + `lastName` | `name` | Full name |
-| `emailAddress` | `email` | Email address |
-| `profilePicture` | `avatar_url` | Profile picture URL |
-| Composite | `bio` | See Bio Composition below |
+### Projects Table (from Work Experience)
 
-#### Bio Composition
+| LinkedIn Field | Database Column |
+|----------------|-----------------|
+| Title + Company | `title` |
+| Description | `description` |
+| Full Description | `long_description` |
+| Company Logo | `image_url` |
+| Company URL | `live_url` |
+| Start Date | `created_at` |
+| End Date | `updated_at` |
 
-The `bio` field is composed from multiple LinkedIn sections:
+### Project Technologies (from Skills)
 
-1. **Headline** - Professional headline
-2. **Summary** - About section
-3. **Location & Industry** - Metadata
-4. **Education** - Formatted education history
-5. **Languages** - Language proficiencies
-6. **Honors & Awards** - Achievements and recognitions
-
-### Projects Table
-
-Multiple LinkedIn sections are mapped to the `projects` table:
-
-#### Work Experience → Projects
-
-| LinkedIn Field | Database Column | Notes |
-|----------------|-----------------|-------|
-| `title` + `companyName` | `title` | Format: "Title at Company" |
-| Generated | `slug` | URL-friendly slug from title |
-| `description` | `description` | Short description |
-| `location`, `employmentType`, `responsibilities` | `long_description` | Detailed description |
-| `companyLogoUrl` | `image_url` | Company logo |
-| `companyUrl` | `live_url` | Company website |
-| - | `github_url` | Always null for LinkedIn imports |
-| `startDate` | `created_at` | Position start date |
-| `endDate` or now | `updated_at` | Position end date |
-
-#### Certifications → Projects
-
-| LinkedIn Field | Database Column | Notes |
-|----------------|-----------------|-------|
-| `name` | `title` | Prefixed with "Certification: " |
-| `authority` | `description` | Issuing organization |
-| `licenseNumber` | `long_description` | License details |
-| `url` | `live_url` | Certification URL |
-
-#### Publications → Projects
-
-| LinkedIn Field | Database Column | Notes |
-|----------------|-----------------|-------|
-| `name` | `title` | Prefixed with "Publication: " |
-| `publisher` | `description` | Publisher name |
-| `description` | `long_description` | Publication description |
-| `url` | `live_url` | Publication URL |
-
-#### Volunteer Experience → Projects
-
-| LinkedIn Field | Database Column | Notes |
-|----------------|-----------------|-------|
-| `role` + `organization` | `title` | Format: "Volunteer: Role at Organization" |
-| `description` | `description` | Role description |
-| `cause`, `description` | `long_description` | Detailed description |
-
-### Project Technologies Table
-
-LinkedIn skills are linked to the most recent projects:
-
-| LinkedIn Field | Database Column | Notes |
-|----------------|-----------------|-------|
-| `name` | `technology` | Skill/technology name |
-| - | `project_id` | Links to recent projects |
-
-Skills are:
-- Sorted by endorsement count (highest first)
-- Linked to the 3 most recent projects
-- Deduplicated and normalized
+Skills are linked to the most recent projects as technologies.
 
 ## Error Handling
 
-The importer provides descriptive error messages for common issues:
-
-| Error Type | Description | Resolution |
-|------------|-------------|------------|
-| `ConfigError` | Missing or invalid configuration | Check environment variables or CLI arguments |
-| `AuthError` | LinkedIn authentication failed | Verify API credentials |
-| `APIError` | LinkedIn API request failed | Check network, rate limits, or profile URL |
-| `ValidationError` | Profile data validation failed | Ensure profile has required fields |
-| `DatabaseError` | Database operation failed | Check database connection and permissions |
+| Error | Description | Resolution |
+|-------|-------------|------------|
+| `CookieExpired` | The li_at cookie is no longer valid | Obtain a fresh cookie from LinkedIn |
+| `AuthError` | Authentication failed | Check credentials or cookie |
+| `TwoFactorRequired` | 2FA challenge presented | Use `--no-headless` and complete 2FA manually |
+| `ProfileNotFound` | Profile URL is invalid or private | Verify the URL and profile visibility |
+| `ScrapingBlocked` | LinkedIn detected automation | Wait and retry with higher delays |
+| `BrowserError` | ChromeDriver or browser issue | Check Chrome and ChromeDriver versions |
 
 ### Retry Behavior
 
-- Network failures are retried up to 3 times with exponential backoff (1s, 2s, 4s)
-- Rate limit responses (429) trigger automatic waiting per `Retry-After` header
-- All database operations are transactional - failures trigger automatic rollback
+- Failed operations are retried up to 3 times with exponential backoff
+- Page loads timeout after 30 seconds (configurable)
+- All database operations are transactional
+
+## Troubleshooting
+
+### "Cookie expired" or "Invalid cookie"
+
+1. Log out and back into LinkedIn in your browser
+2. Obtain a fresh `li_at` cookie
+3. Update your environment variable or `.env` file
+
+### "ChromeDriver not found"
+
+The importer uses `webdriver-manager` to auto-download ChromeDriver. If this fails:
+
+1. **Install Chrome** if not already installed
+2. **Manually download ChromeDriver** matching your Chrome version from [chromedriver.chromium.org](https://chromedriver.chromium.org/)
+3. **Set the path:** `export CHROMEDRIVER_PATH=/path/to/chromedriver`
+
+### "Profile not found" (404)
+
+- Verify the LinkedIn profile URL is correct
+- Ensure the profile is public or you have access
+- Check for typos in the username
+
+### 2FA timeout
+
+If the 2FA timeout is too short:
+1. Run with `--no-headless` to see the browser
+2. Complete 2FA within 120 seconds
+3. Consider using cookie authentication to bypass 2FA entirely
+
+### LinkedIn blocking/rate limiting
+
+If LinkedIn detects automation:
+1. **Increase delays:** `--action-delay 3.0 --scroll-delay 2.0`
+2. **Wait before retrying:** Wait at least 1 hour
+3. **Use a fresh cookie:** Obtain a new `li_at` cookie
+4. **Avoid frequent imports:** Limit to once per day
+
+### Database connection errors
+
+1. Verify PostgreSQL is running: `docker compose up -d postgres`
+2. Check connection parameters in `.env`
+3. Ensure database and tables exist (run migrations)
+
+### Debug mode
+
+Enable verbose logging for detailed diagnostics:
+
+```bash
+uv run linkedin-importer https://linkedin.com/in/johndoe \
+    --profile-email john@example.com \
+    --verbose \
+    --screenshot-on-error \
+    --no-headless
+```
 
 ## Development
 
@@ -305,44 +426,41 @@ uv run pytest
 # Run with verbose output
 uv run pytest -v
 
-# Run with coverage report
-uv run pytest --cov=linkedin_importer
-
 # Run specific test file
-uv run pytest tests/test_config_properties.py
+uv run pytest tests/test_scraper_adapter.py
 
-# Run tests matching a pattern
-uv run pytest -k "test_config"
+# Run with coverage
+uv run pytest --cov=linkedin_importer
 ```
-
-### Test Categories
-
-- **Property-based tests**: Using Hypothesis for comprehensive input testing
-- **Unit tests**: Testing individual components in isolation
-- **Integration tests**: Testing component interactions
 
 ### Code Quality
 
 ```bash
-# Type checking (if mypy is installed)
+# Type checking
 uv run mypy src/
 
-# Linting (if ruff is installed)
+# Linting
 uv run ruff check src/
 ```
+
+### Manual Testing
+
+See [docs/manual_testing_checklist.md](docs/manual_testing_checklist.md) for comprehensive manual testing procedures.
 
 ## Project Structure
 
 ```
 linkedin-importer/
 ├── src/
-│   └── linkedin_importer/        # Main package
+│   └── linkedin_importer/
 │       ├── __init__.py           # Package initialization
 │       ├── cli.py                # CLI entry point (Click)
 │       ├── config.py             # Configuration models (Pydantic)
 │       ├── db_models.py          # Database models
 │       ├── errors.py             # Custom error classes
-│       ├── linkedin_client.py    # LinkedIn API client
+│       ├── scraper_client.py     # LinkedIn scraper client (Selenium)
+│       ├── scraper_adapter.py    # Data adapter (Person → LinkedInProfile)
+│       ├── scraper_errors.py     # Scraper-specific error classes
 │       ├── logging_config.py     # Logging configuration
 │       ├── mapper.py             # LinkedIn → Database mapper
 │       ├── models.py             # LinkedIn data models
@@ -350,64 +468,52 @@ linkedin-importer/
 │       ├── repository.py         # Database repository
 │       └── validation.py         # Data validation utilities
 ├── tests/                        # Test suite
-│   ├── test_config_*.py          # Configuration tests
-│   ├── test_linkedin_client_*.py # API client tests
-│   ├── test_mapper_*.py          # Mapper tests
-│   ├── test_repository_*.py      # Repository tests
-│   └── test_validation_*.py      # Validation tests
+├── docs/                         # Documentation
 ├── .env.example                  # Example environment variables
 ├── pyproject.toml                # Project configuration
-├── uv.lock                       # Lock file
 └── README.md                     # This file
 ```
 
-## Troubleshooting
+## Migration from API
 
-### Common Issues
+The previous version of this tool used LinkedIn's API, which no longer supports fetching arbitrary public profiles. The new scraper-based approach:
 
-#### "Configuration error: Either database URL or all of (name, user, password) must be provided"
+### What Changed
 
-Ensure you have either:
-- Set `DATABASE_URL` environment variable, OR
-- Set all of `DB_NAME`, `DB_USER`, and `DB_PASSWORD`
+| Aspect | Old (API) | New (Scraper) |
+|--------|-----------|---------------|
+| Authentication | API Key + Secret | Cookie or Email/Password |
+| Data Source | LinkedIn API | Browser automation |
+| Rate Limits | API quotas | Detection-based |
+| 2FA | N/A | Manual intervention supported |
+| Headless | N/A | Supported |
 
-#### "LinkedIn authentication failed"
+### Deprecated Options
 
-1. Verify your API credentials are correct
-2. Check that your LinkedIn API application is active
-3. Ensure you have the required API permissions
+The following options are deprecated and will be removed in a future version:
 
-#### "Rate limit exceeded"
+- `--linkedin-api-key`
+- `--linkedin-api-secret`
+- `LINKEDIN_API_KEY` environment variable
+- `LINKEDIN_API_SECRET` environment variable
+- `LINKEDIN_ACCESS_TOKEN` environment variable
 
-The importer will automatically wait and retry. If the issue persists:
-- Wait a few minutes before retrying
-- Check your API quota in the LinkedIn Developer Portal
+### Migration Steps
 
-#### "Profile not found" (404)
+1. **Obtain your `li_at` cookie** (see [Cookie Authentication](#cookie-authentication-recommended))
+2. **Update your `.env` file:**
+   ```bash
+   # Remove these (deprecated)
+   # LINKEDIN_API_KEY=...
+   # LINKEDIN_API_SECRET=...
+   
+   # Add these (new)
+   LINKEDIN_COOKIE=your_li_at_cookie
+   PROFILE_EMAIL=your@email.com
+   ```
+3. **Run the importer** as before - the CLI interface is compatible
 
-- Verify the LinkedIn profile URL is correct
-- Ensure the profile is public or you have access permissions
-
-#### Database connection errors
-
-1. Verify the database is running and accessible
-2. Check firewall rules if connecting to a remote database
-3. Verify credentials are correct
-4. Ensure the database and required tables exist
-
-### Debug Mode
-
-Enable verbose logging to get detailed information:
-
-```bash
-uv run linkedin-importer https://www.linkedin.com/in/johndoe --verbose
-```
-
-This will show:
-- Configuration loading details
-- API request/response information
-- Database operations progress
-- Detailed error stack traces
+For more details, see [docs/MIGRATION.md](docs/MIGRATION.md).
 
 ## License
 
