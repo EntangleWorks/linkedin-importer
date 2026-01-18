@@ -13,12 +13,8 @@ import pytest
 
 from linkedin_importer.config import DatabaseConfig
 from linkedin_importer.db_models import (
-    CertificationData,
-    EducationData,
-    ExperienceData,
     ProjectData,
     UserData,
-    UserSkillData,
 )
 from linkedin_importer.errors import DatabaseError
 from linkedin_importer.repository import ImportResult, TransactionalRepository

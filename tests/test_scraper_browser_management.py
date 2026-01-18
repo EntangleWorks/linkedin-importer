@@ -8,7 +8,7 @@ Validates Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 5.5
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from hypothesis import HealthCheck, given, settings
@@ -117,7 +117,7 @@ class TestPlaywrightRuntimeLifecycle:
         mock_runtime = MagicMock()
         mock_runtime_class.return_value = mock_runtime
 
-        client = LinkedInScraperClient(headless=True)
+        LinkedInScraperClient(headless=True)
 
         mock_runtime.start.assert_called_once()
 
