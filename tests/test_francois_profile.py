@@ -208,7 +208,14 @@ class TestFrancoisProfileMapping:
     def test_mapping_produces_user_data(self):
         """Test that mapping produces correct user data."""
         profile = create_francois_profile()
-        user_data, projects_data = map_profile_to_database(profile)
+        (
+            user_data,
+            projects_data,
+            experiences_data,
+            educations_data,
+            certifications_data,
+            skills_data,
+        ) = map_profile_to_database(profile)
 
         assert user_data.email == "francoisvw@protonmail.com"
         assert user_data.name == "Francois Van Wyk"
@@ -216,92 +223,116 @@ class TestFrancoisProfileMapping:
         assert user_data.avatar_url is None
 
     def test_mapping_produces_correct_number_of_projects(self):
-        """Test that mapping produces correct number of projects."""
+        """Test that mapping produces correct counts of experiences and certifications."""
         profile = create_francois_profile()
-        user_data, projects_data = map_profile_to_database(profile)
+        (
+            user_data,
+            projects_data,
+            experiences_data,
+            educations_data,
+            certifications_data,
+            skills_data,
+        ) = map_profile_to_database(profile)
 
-        # 4 positions + 5 certifications = 9 projects
-        expected_count = 4 + 5
-        assert len(projects_data) == expected_count, (
-            f"Expected {expected_count} projects, got {len(projects_data)}"
+        # 4 positions become 4 experiences
+        assert len(experiences_data) == 4, (
+            f"Expected 4 experiences, got {len(experiences_data)}"
+        )
+        # 5 certifications
+        assert len(certifications_data) == 5, (
+            f"Expected 5 certifications, got {len(certifications_data)}"
         )
 
     def test_position_mapping(self):
-        """Test that positions are correctly mapped to projects."""
+        """Test that positions are correctly mapped to experiences."""
         profile = create_francois_profile()
-        user_data, projects_data = map_profile_to_database(profile)
+        (
+            user_data,
+            projects_data,
+            experiences_data,
+            educations_data,
+            certifications_data,
+            skills_data,
+        ) = map_profile_to_database(profile)
 
-        # Get position-based projects (those without "Certification:" prefix)
-        position_projects = [
-            p for p in projects_data if not p.title.startswith("Certification:")
-        ]
-
-        assert len(position_projects) == 4
+        assert len(experiences_data) == 4
 
         # Check Komodo position
-        komodo_project = next(
-            (p for p in position_projects if "Komodo" in p.title), None
-        )
-        assert komodo_project is not None, "Komodo project not found"
-        assert "Frontend Developer" in komodo_project.title
-        assert komodo_project.created_at is not None
+        komodo_exp = next((e for e in experiences_data if "Komodo" in e.company), None)
+        assert komodo_exp is not None, "Komodo experience not found"
+        assert "Frontend Developer" in komodo_exp.position
 
     def test_certification_mapping(self):
-        """Test that certifications are correctly mapped to projects."""
+        """Test that certifications are correctly mapped."""
         profile = create_francois_profile()
-        user_data, projects_data = map_profile_to_database(profile)
+        (
+            user_data,
+            projects_data,
+            experiences_data,
+            educations_data,
+            certifications_data,
+            skills_data,
+        ) = map_profile_to_database(profile)
 
-        # Get certification-based projects
-        cert_projects = [
-            p for p in projects_data if p.title.startswith("Certification:")
-        ]
+        assert len(certifications_data) == 5
 
-        assert len(cert_projects) == 5
-
-        # Check Rust Fundamentals certification
-        rust_cert = next(
-            (p for p in cert_projects if "Rust Fundamentals" in p.title), None
-        )
+        # Check specific certifications
+        rust_cert = next((c for c in certifications_data if "Rust" in c.name), None)
         assert rust_cert is not None, "Rust Fundamentals certification not found"
 
-    def test_skills_linked_to_recent_projects(self):
-        """Test that skills are linked to the most recent projects."""
+    def test_skills_mapped(self):
+        """Test that skills are correctly mapped."""
         profile = create_francois_profile()
-        user_data, projects_data = map_profile_to_database(profile)
+        (
+            user_data,
+            projects_data,
+            experiences_data,
+            educations_data,
+            certifications_data,
+            skills_data,
+        ) = map_profile_to_database(profile)
 
-        # The mapper should link skills to the 3 most recent projects
-        projects_with_skills = [p for p in projects_data if p.technologies]
+        # Verify skills are mapped
+        assert len(skills_data) == 3, f"Expected 3 skills, got {len(skills_data)}"
 
-        assert len(projects_with_skills) <= 3, (
-            "Skills should be linked to max 3 projects"
+        # Verify skill names
+        skill_names = [s.name for s in skills_data]
+        assert "Design Patterns" in skill_names, "Design Patterns skill not found"
+        assert "Front-End Development" in skill_names, (
+            "Front-End Development skill not found"
+        )
+        assert "SOLID Design Principles" in skill_names, (
+            "SOLID Design Principles skill not found"
         )
 
-        if projects_with_skills:
-            # Check that skills are present
-            first_project_with_skills = projects_with_skills[0]
-            assert "Design Patterns" in first_project_with_skills.technologies
-            assert "Front-End Development" in first_project_with_skills.technologies
-            assert "SOLID Design Principles" in first_project_with_skills.technologies
-
-    def test_slug_generation(self):
-        """Test that slugs are correctly generated and unique."""
+    def test_experience_has_company_names(self):
+        """Test that experiences have proper company names."""
         profile = create_francois_profile()
-        user_data, projects_data = map_profile_to_database(profile)
+        (
+            user_data,
+            projects_data,
+            experiences_data,
+            educations_data,
+            certifications_data,
+            skills_data,
+        ) = map_profile_to_database(profile)
 
-        slugs = [p.slug for p in projects_data]
-
-        # All slugs should be unique
-        assert len(slugs) == len(set(slugs)), "Slugs should be unique"
-
-        # Slugs should not contain special characters
-        for slug in slugs:
-            assert " " not in slug, f"Slug contains space: {slug}"
-            assert slug == slug.lower(), f"Slug is not lowercase: {slug}"
+        # Each experience should have a company name
+        for exp in experiences_data:
+            assert exp.company is not None, "Experience should have a company"
+            assert len(exp.company) > 0, "Company name should not be empty"
 
     def test_bio_formatting(self):
         """Test that bio is correctly formatted from profile data."""
         profile = create_francois_profile()
-        user_data, projects_data = map_profile_to_database(profile)
+        (
+            user_data,
+            projects_data,
+            experiences_data,
+            educations_data,
+            certifications_data,
+            skills_data,
+        ) = map_profile_to_database(profile)
 
         bio = user_data.bio
 
@@ -312,36 +343,35 @@ class TestFrancoisProfileMapping:
         assert "WIP" in bio
 
         # Should contain location
-        assert "Pretoria, Gauteng, South Africa" in bio
+        assert "Pretoria" in bio
 
-        # Should contain education section
-        assert "EDUCATION" in bio
-        assert "University of Pretoria" in bio
-        assert "Bachelor of Engineering" in bio or "BE" in bio
+        # Should contain industry
+        assert "Technology" in bio
 
     def test_date_handling(self):
         """Test that dates are correctly handled."""
         profile = create_francois_profile()
-        user_data, projects_data = map_profile_to_database(profile)
+        (
+            user_data,
+            projects_data,
+            experiences_data,
+            educations_data,
+            certifications_data,
+            skills_data,
+        ) = map_profile_to_database(profile)
 
-        # Get Komodo project (most recent, should have no end_date -> uses now)
-        komodo_project = next(
+        # Get Komodo experience (most recent, should have no end_date -> is_current)
+        komodo_exp = next(
             (
-                p
-                for p in projects_data
-                if "Komodo" in p.title and "Frontend Developer" in p.title
+                e
+                for e in experiences_data
+                if "Komodo" in e.company and "Frontend Developer" in e.position
             ),
             None,
         )
-        assert komodo_project is not None
-
-        # For current positions, updated_at should be set to approximately now
-        if komodo_project.updated_at:
-            today = datetime.now()
-            diff = abs((today - komodo_project.updated_at).days)
-            assert diff < 1, (
-                f"Updated at should be today for current position, diff is {diff} days"
-            )
+        assert komodo_exp is not None, "Komodo experience not found"
+        assert komodo_exp.is_current is True, "Komodo should be current position"
+        assert komodo_exp.start_date is not None, "Komodo should have start date"
 
 
 class TestIssueIdentification:
@@ -404,7 +434,14 @@ class TestIssueIdentification:
     def test_generate_report_data(self):
         """Generate data for the debugging report."""
         profile = create_francois_profile()
-        user_data, projects_data = map_profile_to_database(profile)
+        (
+            user_data,
+            projects_data,
+            experiences_data,
+            educations_data,
+            certifications_data,
+            skills_data,
+        ) = map_profile_to_database(profile)
 
         report = {
             "profile_summary": {
@@ -424,23 +461,22 @@ class TestIssueIdentification:
                     "bio_length": len(user_data.bio),
                     "avatar_url": user_data.avatar_url,
                 },
-                "projects_count": len(projects_data),
-                "projects": [
+                "experiences_count": len(experiences_data),
+                "educations_count": len(educations_data),
+                "certifications_count": len(certifications_data),
+                "skills_count": len(skills_data),
+                "experiences": [
                     {
-                        "slug": p.slug,
-                        "title": p.title,
-                        "has_description": bool(p.description),
-                        "has_long_description": bool(p.long_description),
-                        "has_live_url": bool(p.live_url),
-                        "technologies_count": len(p.technologies),
-                        "created_at": p.created_at.isoformat()
-                        if p.created_at
+                        "company": e.company,
+                        "position": e.position,
+                        "has_description": bool(e.description),
+                        "is_current": e.is_current,
+                        "start_date": e.start_date.isoformat()
+                        if e.start_date
                         else None,
-                        "updated_at": p.updated_at.isoformat()
-                        if p.updated_at
-                        else None,
+                        "end_date": e.end_date.isoformat() if e.end_date else None,
                     }
-                    for p in projects_data
+                    for e in experiences_data
                 ],
             },
         }
@@ -458,7 +494,14 @@ class TestIssueIdentification:
 def generate_database_inspection_data() -> dict:
     """Generate simulated database entries for inspection."""
     profile = create_francois_profile()
-    user_data, projects_data = map_profile_to_database(profile)
+    (
+        user_data,
+        projects_data,
+        experiences_data,
+        educations_data,
+        certifications_data,
+        skills_data,
+    ) = map_profile_to_database(profile)
 
     # Simulate UUID generation
     import uuid
@@ -533,11 +576,20 @@ if __name__ == "__main__":
     print(f"  Certifications: {len(profile.certifications)}")
 
     # Map to database
-    user_data, projects_data = map_profile_to_database(profile)
+    (
+        user_data,
+        projects_data,
+        experiences_data,
+        educations_data,
+        certifications_data,
+        skills_data,
+    ) = map_profile_to_database(profile)
     print(f"\n✓ Mapped to database models")
     print(f"  User: {user_data.name} <{user_data.email}>")
-    print(f"  Bio length: {len(user_data.bio)} characters")
-    print(f"  Projects created: {len(projects_data)}")
+    print(f"  Experiences: {len(experiences_data)}")
+    print(f"  Educations: {len(educations_data)}")
+    print(f"  Certifications: {len(certifications_data)}")
+    print(f"  Skills: {len(skills_data)}")
 
     # Show projects
     print(f"\n{'=' * 80}")

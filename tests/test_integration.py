@@ -161,50 +161,87 @@ class TestDataMapperIntegration:
 
     def test_complete_profile_mapping(self, complete_profile):
         """Test mapping a complete profile with all sections."""
-        user_data, projects_data = map_profile_to_database(complete_profile)
+        (
+            user_data,
+            projects_data,
+            experiences_data,
+            educations_data,
+            certifications_data,
+            skills_data,
+        ) = map_profile_to_database(complete_profile)
 
         # User should have all basic info
         assert user_data.name == "John Doe"
         assert user_data.email == "john.doe@example.com"
 
-        # Should have projects for positions, certs, pubs, volunteer
-        assert len(projects_data) >= 2  # At least 2 positions
+        # Should have experiences for positions
+        assert len(experiences_data) >= 2  # At least 2 positions
 
     def test_skills_linked_to_recent_projects(self, complete_profile):
-        """Test that skills are linked to recent projects."""
-        user_data, projects_data = map_profile_to_database(complete_profile)
+        """Test that skills are correctly mapped."""
+        (
+            user_data,
+            projects_data,
+            experiences_data,
+            educations_data,
+            certifications_data,
+            skills_data,
+        ) = map_profile_to_database(complete_profile)
 
-        # At least one project should have technologies
-        projects_with_tech = [p for p in projects_data if p.technologies]
-        assert len(projects_with_tech) > 0
+        # Skills should be mapped
+        assert len(skills_data) > 0
 
     def test_unique_slugs_generated(self, complete_profile):
-        """Test that unique slugs are generated for projects."""
-        user_data, projects_data = map_profile_to_database(complete_profile)
+        """Test that experiences have proper data."""
+        (
+            user_data,
+            projects_data,
+            experiences_data,
+            educations_data,
+            certifications_data,
+            skills_data,
+        ) = map_profile_to_database(complete_profile)
 
-        slugs = [p.slug for p in projects_data]
-        assert len(slugs) == len(set(slugs))  # All unique
+        # Each experience should have a company
+        for exp in experiences_data:
+            assert exp.company is not None
 
     def test_bio_contains_education(self, complete_profile):
-        """Test that bio contains education information."""
-        user_data, projects_data = map_profile_to_database(complete_profile)
+        """Test that education is mapped."""
+        (
+            user_data,
+            projects_data,
+            experiences_data,
+            educations_data,
+            certifications_data,
+            skills_data,
+        ) = map_profile_to_database(complete_profile)
 
-        # Bio should mention school
+        # Education should be mapped
         assert user_data.bio is not None
-        assert "MIT" in user_data.bio or "education" in user_data.bio.lower()
+        assert len(educations_data) > 0
 
     def test_position_dates_preserved(self, complete_profile):
-        """Test that position dates are preserved in projects."""
-        user_data, projects_data = map_profile_to_database(complete_profile)
+        """Test that position dates are preserved in experiences."""
+        (
+            user_data,
+            projects_data,
+            experiences_data,
+            educations_data,
+            certifications_data,
+            skills_data,
+        ) = map_profile_to_database(complete_profile)
 
-        # Find a project from positions
-        position_projects = [
-            p for p in projects_data if "TechCorp" in p.title or "StartupXYZ" in p.title
+        # Find an experience from positions
+        techcorp_exp = [
+            e
+            for e in experiences_data
+            if "TechCorp" in e.company or "StartupXYZ" in e.company
         ]
 
-        if position_projects:
-            project = position_projects[0]
-            assert project.created_at is not None
+        if techcorp_exp:
+            exp = techcorp_exp[0]
+            assert exp.start_date is not None
 
 
 # ==============================================================================
@@ -279,7 +316,14 @@ class TestRepositoryIntegration:
     @pytest.mark.asyncio
     async def test_successful_import(self, complete_profile):
         """Test successful import through repository."""
-        user_data, projects_data = map_profile_to_database(complete_profile)
+        (
+            user_data,
+            projects_data,
+            experiences_data,
+            educations_data,
+            certifications_data,
+            skills_data,
+        ) = map_profile_to_database(complete_profile)
 
         config = DatabaseConfig(
             host="localhost",
@@ -295,7 +339,14 @@ class TestRepositoryIntegration:
         mock_pool = self._create_mock_pool()
         repository._pool = mock_pool
 
-        result = await repository.execute_import(user_data, projects_data)
+        result = await repository.execute_import(
+            user_data,
+            projects_data,
+            experiences_data,
+            educations_data,
+            certifications_data,
+            skills_data,
+        )
 
         assert result.success is True
         # Note: user_id may be None in mock mode since fetchrow returns dict not tuple
@@ -304,7 +355,14 @@ class TestRepositoryIntegration:
     @pytest.mark.asyncio
     async def test_rollback_on_project_insert_failure(self, complete_profile):
         """Test that transaction rolls back on project insert failure."""
-        user_data, projects_data = map_profile_to_database(complete_profile)
+        (
+            user_data,
+            projects_data,
+            experiences_data,
+            educations_data,
+            certifications_data,
+            skills_data,
+        ) = map_profile_to_database(complete_profile)
 
         config = DatabaseConfig(
             host="localhost",
@@ -326,7 +384,14 @@ class TestRepositoryIntegration:
         repository.execute_import = mock_execute_import
         repository._pool = self._create_mock_pool()
 
-        result = await repository.execute_import(user_data, projects_data)
+        result = await repository.execute_import(
+            user_data,
+            projects_data,
+            experiences_data,
+            educations_data,
+            certifications_data,
+            skills_data,
+        )
 
         # Should fail
         assert result.success is False
@@ -693,11 +758,20 @@ class TestConstraintHandling:
             ],
         )
 
-        user_data, projects_data = map_profile_to_database(profile_with_duplicates)
+        (
+            user_data,
+            projects_data,
+            experiences_data,
+            educations_data,
+            certifications_data,
+            skills_data,
+        ) = map_profile_to_database(profile_with_duplicates)
 
-        # Slugs should still be unique
-        slugs = [p.slug for p in projects_data]
-        assert len(slugs) == len(set(slugs))
+        # Experiences should be created for each position
+        assert len(experiences_data) == 2
+        # Each experience should have the company name
+        for exp in experiences_data:
+            assert exp.company == "Same Corp"
 
 
 # ==============================================================================

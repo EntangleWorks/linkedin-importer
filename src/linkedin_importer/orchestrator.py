@@ -10,11 +10,11 @@ from .repository import ImportResult, TransactionalRepository
 from .scraper_adapter import convert_person_to_profile
 from .scraper_client import LinkedInScraperClient
 from .scraper_errors import (
+    AuthError,
     CookieExpired,
     ProfileNotFound,
     ScraperError,
     ScrapingBlocked,
-    TwoFactorRequired,
 )
 
 logger = get_logger(__name__)
@@ -155,9 +155,13 @@ async def import_profile_scraper(config: Config) -> ImportResult:
             error=error_msg,
         )
 
-    except TwoFactorRequired as e:
-        error_msg = f"Two-factor authentication required: {e.message}"
-        log_error_with_details(logger, e, context={"auth_method": "credentials"})
+    except AuthError as e:
+        error_msg = f"LinkedIn authentication failed: {e.message}"
+        log_error_with_details(
+            logger,
+            e,
+            context={"auth_method": config.auth.method.value if config.auth else None},
+        )
         return ImportResult(
             success=False,
             error=error_msg,

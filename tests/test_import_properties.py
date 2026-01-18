@@ -131,8 +131,8 @@ def test_success_status_completeness(
         # Configure conversion mock
         mock_convert.return_value = mock_profile
 
-        # Configure mapper mock
-        mock_mapper.return_value = (mock_user_data, mock_projects)
+        # Configure mapper mock - returns 6 values now
+        mock_mapper.return_value = (mock_user_data, mock_projects, [], [], [], [])
 
         # Configure repository mock
         mock_repo_instance = AsyncMock()

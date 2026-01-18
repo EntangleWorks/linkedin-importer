@@ -81,12 +81,21 @@ uv sync --all-groups
 
 ### ChromeDriver
 
-ChromeDriver is managed automatically via `webdriver-manager`. If you prefer to use a specific ChromeDriver:
+ChromeDriver is managed automatically via `webdriver-manager`. You can override the browser or driver it uses via environment variables:
 
 ```bash
-# Set the path to your ChromeDriver
+# Use a specific Chrome/Chromium binary (helpful for snap/flatpak or custom installs)
+export CHROME_BINARY=/snap/bin/chromium
+
+# Pin a driver version to match your Chrome/Chromium build
+# e.g. Chromium 143.0.7499.169 snap => export CHROMEDRIVER_VERSION=$(chromium --version | awk '{print $2}')
+export CHROMEDRIVER_VERSION=114.0.5735.90
+
+# Or point directly at a downloaded chromedriver
 export CHROMEDRIVER_PATH=/path/to/chromedriver
 ```
+
+If Chrome fails to start with `DevToolsActivePort` errors (common with snap Chromium), set `CHROME_BINARY` to your Chromium binary and pin `CHROMEDRIVER_VERSION` to that browser version.
 
 ## Authentication
 
@@ -212,7 +221,9 @@ Or use individual parameters:
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `HEADLESS` | Run browser in headless mode | `false` |
-| `CHROMEDRIVER_PATH` | Path to ChromeDriver | (auto-download) |
+| `CHROME_BINARY` | Path to Chrome/Chromium binary (useful for snap/flatpak) | (system default) |
+| `CHROMEDRIVER_VERSION` | Pin a specific chromedriver version to match your browser | `latest` |
+| `CHROMEDRIVER_PATH` | Path to ChromeDriver (skip auto-download) | (auto-download) |
 | `ACTION_DELAY` | Delay between actions (seconds) | `1.0` |
 | `SCROLL_DELAY` | Delay between scrolls (seconds) | `0.5` |
 | `PAGE_LOAD_TIMEOUT` | Page load timeout (seconds) | `30` |

@@ -100,8 +100,13 @@ def load_config(
     # Browser/scraper configuration
     # For headless, check env var if CLI didn't explicitly set it
     # CLI flag is a boolean that defaults to False (--no-headless is default)
-    env_headless = os.getenv("HEADLESS", "").lower() in ("true", "1", "yes")
-    resolved_headless = headless or env_headless
+    env_headless_value = os.getenv("HEADLESS")
+    env_headless = (
+        True
+        if env_headless_value is None
+        else env_headless_value.lower() in ("true", "1", "yes")
+    )
+    resolved_headless = headless if headless is not None else env_headless
 
     resolved_chromedriver_path = chromedriver_path or os.getenv("CHROMEDRIVER_PATH")
 
@@ -199,8 +204,8 @@ def load_config(
 # Browser configuration options
 @click.option(
     "--headless/--no-headless",
-    default=False,
-    help="Run browser in headless mode (default: visible browser for debugging)",
+    default=True,
+    help="Run browser in headless mode (default: headless; use --no-headless to show the browser)",
 )
 @click.option(
     "--chromedriver-path",

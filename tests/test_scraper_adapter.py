@@ -811,27 +811,34 @@ class TestAdapterMapperIntegration:
         assert len(profile.skills) >= 4  # At least the 4 skills
 
         # Pass to mapper - this should NOT raise any exceptions
-        user_data, projects = map_profile_to_database(profile)
+        (
+            user_data,
+            projects,
+            experiences,
+            educations,
+            certifications,
+            skills,
+        ) = map_profile_to_database(profile)
 
         # Verify user data
         assert user_data.email == "alex.johnson@email.com"
         assert user_data.name == "Alex Johnson"
         assert "Software Engineer at Google" in user_data.bio
-        assert "UC Berkeley" in user_data.bio
 
-        # Verify projects (positions become projects)
-        assert len(projects) == 2
+        # Verify experiences (positions become experiences)
+        assert len(experiences) == 2
 
-        # Find the Google position project
-        google_projects = [p for p in projects if "Google" in p.title]
-        assert len(google_projects) == 1
-        assert "Software Engineer" in google_projects[0].title
+        # Find the Google experience
+        google_experiences = [e for e in experiences if "Google" in e.company]
+        assert len(google_experiences) == 1
+        assert "Software Engineer" in google_experiences[0].position
 
-        # Verify skills are linked to projects
-        if projects:
-            # Recent projects should have technologies
-            recent_project = projects[0]
-            assert len(recent_project.technologies) > 0
+        # Verify education
+        assert len(educations) == 1
+        assert "UC Berkeley" in educations[0].school
+
+        # Verify skills
+        assert len(skills) >= 4
 
     def test_empty_profile_compatible_with_mapper(self):
         """
@@ -852,11 +859,20 @@ class TestAdapterMapperIntegration:
         profile = convert_person_to_profile(person, "empty@example.com")
 
         # Should not raise
-        user_data, projects = map_profile_to_database(profile)
+        (
+            user_data,
+            projects,
+            experiences,
+            educations,
+            certifications,
+            skills,
+        ) = map_profile_to_database(profile)
 
         assert user_data.email == "empty@example.com"
         assert user_data.name == "Empty Profile"
         assert projects == []
+        assert experiences == []
+        assert educations == []
 
     def test_profile_with_special_characters(self):
         """
@@ -880,7 +896,14 @@ class TestAdapterMapperIntegration:
         assert profile.last_name == "García-López"
 
         # Should work with mapper
-        user_data, projects = map_profile_to_database(profile)
+        (
+            user_data,
+            projects,
+            experiences,
+            educations,
+            certifications,
+            skills,
+        ) = map_profile_to_database(profile)
 
         assert "José García-López" in user_data.name
         assert "Développeur Senior" in user_data.bio
@@ -1074,8 +1097,19 @@ def test_property_converted_profile_works_with_mapper(first: str, last: str):
     profile = convert_person_to_profile(person, f"{first.lower()}@example.com")
 
     # This should not raise any exception
-    user_data, projects = map_profile_to_database(profile)
+    (
+        user_data,
+        projects,
+        experiences,
+        educations,
+        certifications,
+        skills,
+    ) = map_profile_to_database(profile)
 
     assert user_data is not None
     assert isinstance(projects, list)
+    assert isinstance(experiences, list)
+    assert isinstance(educations, list)
+    assert isinstance(certifications, list)
+    assert isinstance(skills, list)
     assert f"{first} {last}" in user_data.name
