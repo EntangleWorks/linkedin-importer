@@ -12,7 +12,14 @@ from uuid import uuid4
 import pytest
 
 from linkedin_importer.config import DatabaseConfig
-from linkedin_importer.db_models import ProjectData, UserData
+from linkedin_importer.db_models import (
+    CertificationData,
+    EducationData,
+    ExperienceData,
+    ProjectData,
+    UserData,
+    UserSkillData,
+)
 from linkedin_importer.errors import DatabaseError
 from linkedin_importer.repository import ImportResult, TransactionalRepository
 
@@ -69,6 +76,30 @@ def sample_projects():
             technologies=[],
         ),
     ]
+
+
+@pytest.fixture
+def sample_experiences():
+    """Create sample experiences for testing."""
+    return []
+
+
+@pytest.fixture
+def sample_educations():
+    """Create sample educations for testing."""
+    return []
+
+
+@pytest.fixture
+def sample_certifications():
+    """Create sample certifications for testing."""
+    return []
+
+
+@pytest.fixture
+def sample_skills():
+    """Create sample skills for testing."""
+    return []
 
 
 def create_mock_pool(
@@ -250,7 +281,14 @@ class TestTransactionHandling:
 
     @pytest.mark.asyncio
     async def test_successful_transaction_commits(
-        self, db_config, sample_user, sample_projects
+        self,
+        db_config,
+        sample_user,
+        sample_projects,
+        sample_experiences,
+        sample_educations,
+        sample_certifications,
+        sample_skills,
     ):
         """Test that successful operations result in commit."""
         repo = TransactionalRepository(db_config)
@@ -265,7 +303,14 @@ class TestTransactionHandling:
                 with patch.object(
                     repo, "_link_technologies_in_transaction", return_value=None
                 ):
-                    result = await repo.execute_import(sample_user, sample_projects)
+                    result = await repo.execute_import(
+                        sample_user,
+                        sample_projects,
+                        sample_experiences,
+                        sample_educations,
+                        sample_certifications,
+                        sample_skills,
+                    )
 
         assert result.success is True
         assert result.user_id == user_id
@@ -273,54 +318,89 @@ class TestTransactionHandling:
 
     @pytest.mark.asyncio
     async def test_transaction_rollback_on_user_upsert_failure(
-        self, db_config, sample_user, sample_projects
+        self,
+        db_config,
+        sample_user,
+        sample_projects,
+        sample_experiences,
+        sample_educations,
+        sample_certifications,
+        sample_skills,
     ):
         """Test rollback when user upsert fails."""
         repo = TransactionalRepository(db_config)
         repo._pool = create_mock_pool(should_fail_at="fetchrow")
 
         async def mock_upsert(*args, **kwargs):
-            raise Exception("User upsert failed")
+            raise DatabaseError("User upsert failed")
 
         with patch.object(repo, "_upsert_user_in_transaction", side_effect=mock_upsert):
-            result = await repo.execute_import(sample_user, sample_projects)
+            result = await repo.execute_import(
+                sample_user,
+                sample_projects,
+                sample_experiences,
+                sample_educations,
+                sample_certifications,
+                sample_skills,
+            )
 
         assert result.success is False
         assert "User upsert failed" in result.error
 
     @pytest.mark.asyncio
     async def test_transaction_rollback_on_project_insert_failure(
-        self, db_config, sample_user, sample_projects
+        self,
+        db_config,
+        sample_user,
+        sample_projects,
+        sample_experiences,
+        sample_educations,
+        sample_certifications,
+        sample_skills,
     ):
         """Test rollback when project insertion fails."""
         repo = TransactionalRepository(db_config)
         user_id = uuid4()
-        repo._pool = create_mock_pool(user_id)
+        repo._pool = create_mock_pool(user_id=user_id)
 
         async def mock_insert(*args, **kwargs):
-            raise Exception("Project insert failed")
+            raise DatabaseError("Project insert failed")
 
         with patch.object(repo, "_upsert_user_in_transaction", return_value=user_id):
             with patch.object(
                 repo, "_insert_projects_in_transaction", side_effect=mock_insert
             ):
-                result = await repo.execute_import(sample_user, sample_projects)
+                result = await repo.execute_import(
+                    sample_user,
+                    sample_projects,
+                    sample_experiences,
+                    sample_educations,
+                    sample_certifications,
+                    sample_skills,
+                )
 
         assert result.success is False
         assert "Project insert failed" in result.error
 
     @pytest.mark.asyncio
     async def test_transaction_rollback_on_technology_link_failure(
-        self, db_config, sample_user, sample_projects
+        self,
+        db_config,
+        sample_user,
+        sample_projects,
+        sample_experiences,
+        sample_educations,
+        sample_certifications,
+        sample_skills,
     ):
         """Test rollback when technology linking fails."""
         repo = TransactionalRepository(db_config)
         user_id = uuid4()
         project_ids = [uuid4() for _ in sample_projects]
-        repo._pool = create_mock_pool(user_id, project_ids)
+        repo._pool = create_mock_pool(user_id=user_id, project_ids=project_ids)
 
         async def mock_link(*args, **kwargs):
-            raise Exception("Technology link failed")
+            raise DatabaseError("Technology link failed")
 
         with patch.object(repo, "_upsert_user_in_transaction", return_value=user_id):
             with patch.object(
@@ -329,14 +409,28 @@ class TestTransactionHandling:
                 with patch.object(
                     repo, "_link_technologies_in_transaction", side_effect=mock_link
                 ):
-                    result = await repo.execute_import(sample_user, sample_projects)
+                    result = await repo.execute_import(
+                        sample_user,
+                        sample_projects,
+                        sample_experiences,
+                        sample_educations,
+                        sample_certifications,
+                        sample_skills,
+                    )
 
         assert result.success is False
         assert "Technology link failed" in result.error
 
     @pytest.mark.asyncio
     async def test_partial_failure_rolls_back_all_changes(
-        self, db_config, sample_user, sample_projects
+        self,
+        db_config,
+        sample_user,
+        sample_projects,
+        sample_experiences,
+        sample_educations,
+        sample_certifications,
+        sample_skills,
     ):
         """Test that partial success doesn't leave orphaned data."""
         repo = TransactionalRepository(db_config)
@@ -344,18 +438,25 @@ class TestTransactionHandling:
         project_ids = [uuid4(), uuid4()]  # Less than sample_projects
 
         # Mock pool that tracks operations
-        mock_pool = create_mock_pool(user_id, project_ids)
+        mock_pool = create_mock_pool(user_id=user_id, project_ids=project_ids)
         repo._pool = mock_pool
 
         # Simulate failure during project insertion
         async def mock_insert(*args, **kwargs):
-            raise Exception("Failed during project insertion")
+            raise DatabaseError("Failed during project insertion")
 
         with patch.object(repo, "_upsert_user_in_transaction", return_value=user_id):
             with patch.object(
                 repo, "_insert_projects_in_transaction", side_effect=mock_insert
             ):
-                result = await repo.execute_import(sample_user, sample_projects)
+                result = await repo.execute_import(
+                    sample_user,
+                    sample_projects,
+                    sample_experiences,
+                    sample_educations,
+                    sample_certifications,
+                    sample_skills,
+                )
 
         assert result.success is False
         assert "Failed during project insertion" in result.error
@@ -373,17 +474,31 @@ class TestConstraintHandling:
 
     @pytest.mark.asyncio
     async def test_unique_email_constraint_handling(
-        self, db_config, sample_user, sample_projects
+        self,
+        db_config,
+        sample_user,
+        sample_projects,
+        sample_experiences,
+        sample_educations,
+        sample_certifications,
+        sample_skills,
     ):
-        """Test handling of unique email constraint violation."""
+        """Test handling of unique email constraint violations."""
         repo = TransactionalRepository(db_config)
         repo._pool = create_mock_pool(constraint_error="unique_email")
 
         async def mock_upsert(*args, **kwargs):
-            raise Exception("duplicate key value violates unique constraint")
+            raise DatabaseError("duplicate key value violates unique constraint")
 
         with patch.object(repo, "_upsert_user_in_transaction", side_effect=mock_upsert):
-            result = await repo.execute_import(sample_user, sample_projects)
+            result = await repo.execute_import(
+                sample_user,
+                sample_projects,
+                sample_experiences,
+                sample_educations,
+                sample_certifications,
+                sample_skills,
+            )
 
         assert result.success is False
         assert (
@@ -392,18 +507,27 @@ class TestConstraintHandling:
 
     @pytest.mark.asyncio
     async def test_foreign_key_constraint_handling(
-        self, db_config, sample_user, sample_projects
+        self,
+        db_config,
+        sample_user,
+        sample_projects,
+        sample_experiences,
+        sample_educations,
+        sample_certifications,
+        sample_skills,
     ):
-        """Test handling of foreign key constraint violation."""
+        """Test handling of foreign key constraint violations."""
         repo = TransactionalRepository(db_config)
         user_id = uuid4()
         project_ids = [uuid4() for _ in sample_projects]
         repo._pool = create_mock_pool(
-            user_id, project_ids, constraint_error="foreign_key"
+            user_id=user_id,
+            project_ids=project_ids,
+            constraint_error="foreign_key",
         )
 
         async def mock_link(*args, **kwargs):
-            raise Exception("violates foreign key constraint")
+            raise DatabaseError("violates foreign key constraint")
 
         with patch.object(repo, "_upsert_user_in_transaction", return_value=user_id):
             with patch.object(
@@ -412,14 +536,29 @@ class TestConstraintHandling:
                 with patch.object(
                     repo, "_link_technologies_in_transaction", side_effect=mock_link
                 ):
-                    result = await repo.execute_import(sample_user, sample_projects)
+                    result = await repo.execute_import(
+                        sample_user,
+                        sample_projects,
+                        sample_experiences,
+                        sample_educations,
+                        sample_certifications,
+                        sample_skills,
+                    )
 
         assert result.success is False
         assert "foreign key" in result.error.lower()
 
     @pytest.mark.asyncio
-    async def test_unique_slug_generation(self, db_config, sample_user):
-        """Test that duplicate slugs are handled by generating unique ones."""
+    async def test_unique_slug_generation(
+        self,
+        db_config,
+        sample_user,
+        sample_experiences,
+        sample_educations,
+        sample_certifications,
+        sample_skills,
+    ):
+        """Test that similar slugs are made unique."""
         # Create projects with duplicate slugs
         projects = [
             ProjectData(
@@ -439,7 +578,7 @@ class TestConstraintHandling:
         repo = TransactionalRepository(db_config)
         user_id = uuid4()
         project_ids = [uuid4(), uuid4()]
-        repo._pool = create_mock_pool(user_id, project_ids)
+        repo._pool = create_mock_pool(user_id=user_id, project_ids=project_ids)
 
         with patch.object(repo, "_upsert_user_in_transaction", return_value=user_id):
             with patch.object(
@@ -448,7 +587,14 @@ class TestConstraintHandling:
                 with patch.object(
                     repo, "_link_technologies_in_transaction", return_value=None
                 ):
-                    result = await repo.execute_import(sample_user, projects)
+                    result = await repo.execute_import(
+                        sample_user,
+                        projects,
+                        sample_experiences,
+                        sample_educations,
+                        sample_certifications,
+                        sample_skills,
+                    )
 
         # Should succeed (the repository doesn't handle slug uniqueness)
         assert result.success is True
@@ -463,12 +609,21 @@ class TestUserUpsert:
     """Tests for user upsert operations."""
 
     @pytest.mark.asyncio
-    async def test_new_user_insert(self, db_config, sample_user, sample_projects):
+    async def test_new_user_insert(
+        self,
+        db_config,
+        sample_user,
+        sample_projects,
+        sample_experiences,
+        sample_educations,
+        sample_certifications,
+        sample_skills,
+    ):
         """Test inserting a new user."""
         repo = TransactionalRepository(db_config)
         user_id = uuid4()
         project_ids = [uuid4() for _ in sample_projects]
-        repo._pool = create_mock_pool(user_id, project_ids)
+        repo._pool = create_mock_pool(user_id=user_id, project_ids=project_ids)
 
         with patch.object(repo, "_upsert_user_in_transaction", return_value=user_id):
             with patch.object(
@@ -477,13 +632,28 @@ class TestUserUpsert:
                 with patch.object(
                     repo, "_link_technologies_in_transaction", return_value=None
                 ):
-                    result = await repo.execute_import(sample_user, sample_projects)
+                    result = await repo.execute_import(
+                        sample_user,
+                        sample_projects,
+                        sample_experiences,
+                        sample_educations,
+                        sample_certifications,
+                        sample_skills,
+                    )
 
         assert result.success is True
         assert result.user_id == user_id
 
     @pytest.mark.asyncio
-    async def test_existing_user_update(self, db_config, sample_projects):
+    async def test_existing_user_update(
+        self,
+        db_config,
+        sample_projects,
+        sample_experiences,
+        sample_educations,
+        sample_certifications,
+        sample_skills,
+    ):
         """Test updating an existing user."""
         existing_user = UserData(
             email="existing@example.com",
@@ -494,7 +664,7 @@ class TestUserUpsert:
         repo = TransactionalRepository(db_config)
         existing_id = uuid4()
         project_ids = [uuid4() for _ in sample_projects]
-        repo._pool = create_mock_pool(existing_id, project_ids)
+        repo._pool = create_mock_pool(user_id=existing_id, project_ids=project_ids)
 
         with patch.object(
             repo, "_upsert_user_in_transaction", return_value=existing_id
@@ -505,7 +675,14 @@ class TestUserUpsert:
                 with patch.object(
                     repo, "_link_technologies_in_transaction", return_value=None
                 ):
-                    result = await repo.execute_import(existing_user, sample_projects)
+                    result = await repo.execute_import(
+                        existing_user,
+                        sample_projects,
+                        sample_experiences,
+                        sample_educations,
+                        sample_certifications,
+                        sample_skills,
+                    )
 
         assert result.success is True
         assert result.user_id == existing_id
@@ -521,13 +698,20 @@ class TestProjectInsertion:
 
     @pytest.mark.asyncio
     async def test_insert_multiple_projects(
-        self, db_config, sample_user, sample_projects
+        self,
+        db_config,
+        sample_user,
+        sample_projects,
+        sample_experiences,
+        sample_educations,
+        sample_certifications,
+        sample_skills,
     ):
         """Test inserting multiple projects."""
         repo = TransactionalRepository(db_config)
         user_id = uuid4()
         project_ids = [uuid4() for _ in sample_projects]
-        repo._pool = create_mock_pool(user_id, project_ids)
+        repo._pool = create_mock_pool(user_id=user_id, project_ids=project_ids)
 
         with patch.object(repo, "_upsert_user_in_transaction", return_value=user_id):
             with patch.object(
@@ -536,24 +720,46 @@ class TestProjectInsertion:
                 with patch.object(
                     repo, "_link_technologies_in_transaction", return_value=None
                 ):
-                    result = await repo.execute_import(sample_user, sample_projects)
+                    result = await repo.execute_import(
+                        sample_user,
+                        sample_projects,
+                        sample_experiences,
+                        sample_educations,
+                        sample_certifications,
+                        sample_skills,
+                    )
 
         assert result.success is True
         assert result.projects_count == len(sample_projects)
 
     @pytest.mark.asyncio
-    async def test_insert_empty_projects_list(self, db_config, sample_user):
-        """Test importing with no projects."""
+    async def test_insert_empty_projects_list(
+        self,
+        db_config,
+        sample_user,
+        sample_experiences,
+        sample_educations,
+        sample_certifications,
+        sample_skills,
+    ):
+        """Test importing user with no projects."""
         repo = TransactionalRepository(db_config)
         user_id = uuid4()
-        repo._pool = create_mock_pool(user_id, [])
+        repo._pool = create_mock_pool(user_id=user_id, project_ids=[])
 
         with patch.object(repo, "_upsert_user_in_transaction", return_value=user_id):
             with patch.object(repo, "_insert_projects_in_transaction", return_value=[]):
                 with patch.object(
                     repo, "_link_technologies_in_transaction", return_value=None
                 ):
-                    result = await repo.execute_import(sample_user, [])
+                    result = await repo.execute_import(
+                        sample_user,
+                        [],
+                        sample_experiences,
+                        sample_educations,
+                        sample_certifications,
+                        sample_skills,
+                    )
 
         assert result.success is True
         assert result.projects_count == 0
@@ -569,16 +775,20 @@ class TestTechnologyLinking:
 
     @pytest.mark.asyncio
     async def test_link_technologies_to_projects(
-        self, db_config, sample_user, sample_projects
+        self,
+        db_config,
+        sample_user,
+        sample_projects,
+        sample_experiences,
+        sample_educations,
+        sample_certifications,
+        sample_skills,
     ):
         """Test linking technologies to projects."""
         repo = TransactionalRepository(db_config)
         user_id = uuid4()
         project_ids = [uuid4() for _ in sample_projects]
-        repo._pool = create_mock_pool(user_id, project_ids)
-
-        # Calculate expected technology count (used for verification reference)
-        _tech_count = sum(len(p.technologies) for p in sample_projects)
+        repo._pool = create_mock_pool(user_id=user_id, project_ids=project_ids)
 
         with patch.object(repo, "_upsert_user_in_transaction", return_value=user_id):
             with patch.object(
@@ -587,7 +797,14 @@ class TestTechnologyLinking:
                 with patch.object(
                     repo, "_link_technologies_in_transaction", return_value=None
                 ) as mock_link:
-                    result = await repo.execute_import(sample_user, sample_projects)
+                    result = await repo.execute_import(
+                        sample_user,
+                        sample_projects,
+                        sample_experiences,
+                        sample_educations,
+                        sample_certifications,
+                        sample_skills,
+                    )
 
         assert result.success is True
         # Verify link_technologies was called (once per project with technologies)
@@ -595,27 +812,36 @@ class TestTechnologyLinking:
         assert mock_link.call_count == len(projects_with_tech)
 
     @pytest.mark.asyncio
-    async def test_deduplicate_technologies(self, db_config, sample_user):
-        """Test that duplicate technologies are deduplicated."""
+    async def test_deduplicate_technologies(
+        self,
+        db_config,
+        sample_user,
+        sample_experiences,
+        sample_educations,
+        sample_certifications,
+        sample_skills,
+    ):
+        """Test that duplicate technologies across projects are handled."""
+        # Create projects sharing technologies
         projects = [
             ProjectData(
-                slug="project-1",
-                title="Project 1",
-                description="First",
-                technologies=["Python", "Docker", "Python"],  # Python appears twice
+                slug="project-one",
+                title="Project One",
+                description="First project",
+                technologies=["Python", "Docker", "PostgreSQL"],
             ),
             ProjectData(
-                slug="project-2",
-                title="Project 2",
-                description="Second",
-                technologies=["Python", "Redis"],  # Python appears again
+                slug="project-two",
+                title="Project Two",
+                description="Second project",
+                technologies=["Python", "Redis", "Docker"],  # Python and Docker repeat
             ),
         ]
 
         repo = TransactionalRepository(db_config)
         user_id = uuid4()
         project_ids = [uuid4(), uuid4()]
-        repo._pool = create_mock_pool(user_id, project_ids)
+        repo._pool = create_mock_pool(user_id=user_id, project_ids=project_ids)
 
         with patch.object(repo, "_upsert_user_in_transaction", return_value=user_id):
             with patch.object(
@@ -624,7 +850,14 @@ class TestTechnologyLinking:
                 with patch.object(
                     repo, "_link_technologies_in_transaction", return_value=None
                 ):
-                    result = await repo.execute_import(sample_user, projects)
+                    result = await repo.execute_import(
+                        sample_user,
+                        projects,
+                        sample_experiences,
+                        sample_educations,
+                        sample_certifications,
+                        sample_skills,
+                    )
 
         assert result.success is True
 

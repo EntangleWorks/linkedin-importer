@@ -1,635 +1,512 @@
-"""Comprehensive tests for LinkedIn scraper browser management.
+"""Comprehensive tests for LinkedIn scraper browser management (v3 Playwright).
 
-Tests driver creation, Chrome options configuration, context managers,
-screenshot functionality, and error handling for browser operations.
+Tests Playwright runtime lifecycle, BrowserManager configuration,
+context managers, and error handling for browser operations.
 
 Validates Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 5.5
 """
 
 from __future__ import annotations
 
-import os
-import tempfile
-from pathlib import Path
-from typing import TYPE_CHECKING
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
-from selenium.common.exceptions import WebDriverException
-
-from linkedin_importer.scraper_client import LinkedInScraperClient
-from linkedin_importer.scraper_errors import BrowserError
-
-if TYPE_CHECKING:
-    from selenium.webdriver.chrome.options import Options as ChromeOptions
 
 
 class TestLinkedInScraperClientInitialization:
     """Test client initialization and configuration."""
 
-    def test_default_initialization(self):
+    @patch("linkedin_importer.scraper_client._PlaywrightRuntime")
+    def test_default_initialization(self, mock_runtime_class):
         """Client should initialize with sensible defaults."""
+        from linkedin_importer.scraper_client import LinkedInScraperClient
+
+        mock_runtime = MagicMock()
+        mock_runtime_class.return_value = mock_runtime
+
         client = LinkedInScraperClient()
 
         assert client.headless is True
-        assert client.chromedriver_path is None
+        assert client.user_agent is None
         assert client.page_load_timeout == 30
         assert client.action_delay == 1.0
         assert client.scroll_delay == 0.5
-        assert client.user_agent is None
         assert client.screenshot_on_error is False
         assert client.screenshot_dir == "."
-        assert client.driver is None
         assert client.authenticated is False
+        assert client.max_retries == 3
 
-    def test_custom_initialization(self):
+    @patch("linkedin_importer.scraper_client._PlaywrightRuntime")
+    def test_custom_initialization(self, mock_runtime_class):
         """Client should accept custom configuration."""
+        from linkedin_importer.scraper_client import LinkedInScraperClient
+
+        mock_runtime = MagicMock()
+        mock_runtime_class.return_value = mock_runtime
+
         client = LinkedInScraperClient(
             headless=False,
-            chromedriver_path="/custom/path/chromedriver",
+            chromedriver_path="/custom/path/chromedriver",  # Ignored but accepted
             page_load_timeout=60,
             action_delay=2.0,
             scroll_delay=1.0,
             user_agent="Custom User Agent",
             screenshot_on_error=True,
             screenshot_dir="/tmp/screenshots",
+            max_retries=5,
         )
 
         assert client.headless is False
-        assert client.chromedriver_path == "/custom/path/chromedriver"
         assert client.page_load_timeout == 60
         assert client.action_delay == 2.0
         assert client.scroll_delay == 1.0
         assert client.user_agent == "Custom User Agent"
         assert client.screenshot_on_error is True
         assert client.screenshot_dir == "/tmp/screenshots"
+        assert client.max_retries == 5
 
-    @given(
-        timeout=st.integers(min_value=1, max_value=300),
-        action_delay=st.floats(min_value=0.1, max_value=10.0),
-        scroll_delay=st.floats(min_value=0.1, max_value=5.0),
-    )
-    @settings(max_examples=20)
-    def test_numeric_config_preserved(
-        self, timeout: int, action_delay: float, scroll_delay: float
-    ):
-        """Property: Numeric configuration values are preserved."""
-        client = LinkedInScraperClient(
-            page_load_timeout=timeout,
-            action_delay=action_delay,
-            scroll_delay=scroll_delay,
+    @patch("linkedin_importer.scraper_client._PlaywrightRuntime")
+    def test_headless_defaults_to_true(self, mock_runtime_class):
+        """Headless should default to True when not specified."""
+        from linkedin_importer.scraper_client import LinkedInScraperClient
+
+        mock_runtime = MagicMock()
+        mock_runtime_class.return_value = mock_runtime
+
+        client = LinkedInScraperClient()
+
+        assert client.headless is True
+
+    @patch("linkedin_importer.scraper_client._PlaywrightRuntime")
+    def test_headless_none_becomes_true(self, mock_runtime_class):
+        """Headless=None should default to True."""
+        from linkedin_importer.scraper_client import LinkedInScraperClient
+
+        mock_runtime = MagicMock()
+        mock_runtime_class.return_value = mock_runtime
+
+        client = LinkedInScraperClient(headless=None)
+
+        assert client.headless is True
+
+    @patch("linkedin_importer.scraper_client._PlaywrightRuntime")
+    def test_chromedriver_path_accepted_but_ignored(self, mock_runtime_class):
+        """chromedriver_path should be accepted for backward compatibility but ignored."""
+        from linkedin_importer.scraper_client import LinkedInScraperClient
+
+        mock_runtime = MagicMock()
+        mock_runtime_class.return_value = mock_runtime
+
+        # Should not raise error
+        client = LinkedInScraperClient(chromedriver_path="/some/path/chromedriver")
+
+        # The client should be created successfully
+        assert client is not None
+
+
+class TestPlaywrightRuntimeLifecycle:
+    """Test Playwright runtime initialization and cleanup."""
+
+    @patch("linkedin_importer.scraper_client._PlaywrightRuntime")
+    def test_runtime_started_on_init(self, mock_runtime_class):
+        """Runtime should be started during client initialization."""
+        from linkedin_importer.scraper_client import LinkedInScraperClient
+
+        mock_runtime = MagicMock()
+        mock_runtime_class.return_value = mock_runtime
+
+        client = LinkedInScraperClient(headless=True)
+
+        mock_runtime.start.assert_called_once()
+
+    @patch("linkedin_importer.scraper_client._PlaywrightRuntime")
+    def test_runtime_receives_headless_config(self, mock_runtime_class):
+        """Runtime should be configured with headless setting."""
+        from linkedin_importer.scraper_client import LinkedInScraperClient
+
+        mock_runtime = MagicMock()
+        mock_runtime_class.return_value = mock_runtime
+
+        LinkedInScraperClient(headless=False)
+
+        mock_runtime_class.assert_called_once_with(headless=False, user_agent=None)
+
+    @patch("linkedin_importer.scraper_client._PlaywrightRuntime")
+    def test_runtime_receives_user_agent(self, mock_runtime_class):
+        """Runtime should be configured with user agent if provided."""
+        from linkedin_importer.scraper_client import LinkedInScraperClient
+
+        mock_runtime = MagicMock()
+        mock_runtime_class.return_value = mock_runtime
+
+        LinkedInScraperClient(headless=True, user_agent="Custom Agent/1.0")
+
+        mock_runtime_class.assert_called_once_with(
+            headless=True, user_agent="Custom Agent/1.0"
         )
 
-        assert client.page_load_timeout == timeout
-        assert client.action_delay == action_delay
-        assert client.scroll_delay == scroll_delay
+    @patch("linkedin_importer.scraper_client._PlaywrightRuntime")
+    def test_runtime_stopped_on_close(self, mock_runtime_class):
+        """Runtime should be stopped when client is closed."""
+        from linkedin_importer.scraper_client import LinkedInScraperClient
 
+        mock_runtime = MagicMock()
+        mock_runtime_class.return_value = mock_runtime
 
-class TestChromeOptionsConfiguration:
-    """Test Chrome options building with anti-detection measures."""
-
-    def test_build_chrome_options_headless(self):
-        """Headless mode should add correct arguments (Requirement 3.2)."""
         client = LinkedInScraperClient(headless=True)
-        options = client._build_chrome_options()
-
-        arguments = options.arguments
-        assert "--headless=new" in arguments
-
-    def test_build_chrome_options_non_headless(self):
-        """Non-headless mode should not add headless argument (Requirement 3.3)."""
-        client = LinkedInScraperClient(headless=False)
-        options = client._build_chrome_options()
-
-        arguments = options.arguments
-        assert "--headless=new" not in arguments
-        assert "--headless" not in arguments
-
-    def test_anti_detection_flags_present(self):
-        """Anti-detection flags should be present in options."""
-        client = LinkedInScraperClient()
-        options = client._build_chrome_options()
-
-        arguments = options.arguments
-        # Check for key anti-detection arguments
-        assert "--disable-blink-features=AutomationControlled" in arguments
-        assert "--disable-infobars" in arguments
-        assert "--no-sandbox" in arguments
-        assert "--disable-dev-shm-usage" in arguments
-        assert "--window-size=1920,1080" in arguments
-
-    def test_experimental_options_set(self):
-        """Experimental options for anti-detection should be set."""
-        client = LinkedInScraperClient()
-        options = client._build_chrome_options()
-
-        experimental = options.experimental_options
-        assert "excludeSwitches" in experimental
-        assert "enable-automation" in experimental["excludeSwitches"]
-        assert experimental.get("useAutomationExtension") is False
-
-    def test_custom_user_agent_applied(self):
-        """Custom user agent should be added to options."""
-        custom_ua = "Mozilla/5.0 Custom Agent"
-        client = LinkedInScraperClient(user_agent=custom_ua)
-        options = client._build_chrome_options()
-
-        arguments = options.arguments
-        assert f"--user-agent={custom_ua}" in arguments
-
-    def test_no_user_agent_when_none(self):
-        """No user agent argument when user_agent is None."""
-        client = LinkedInScraperClient(user_agent=None)
-        options = client._build_chrome_options()
-
-        arguments = options.arguments
-        user_agent_args = [arg for arg in arguments if "--user-agent" in arg]
-        assert len(user_agent_args) == 0
-
-
-class TestChromedriverService:
-    """Test ChromeDriver service configuration and auto-download."""
-
-    def test_custom_chromedriver_path_not_found(self):
-        """Should raise BrowserError if custom path doesn't exist (Requirement 3.5)."""
-        client = LinkedInScraperClient(chromedriver_path="/nonexistent/chromedriver")
-
-        with pytest.raises(BrowserError) as exc_info:
-            client._get_chromedriver_service()
-
-        assert "not found" in str(exc_info.value).lower()
-        assert "chromedriver_path" in exc_info.value.details
-
-    def test_custom_chromedriver_path_exists(self):
-        """Should use custom path when it exists."""
-        with tempfile.NamedTemporaryFile(delete=False, suffix="_chromedriver") as f:
-            temp_path = f.name
-
-        try:
-            client = LinkedInScraperClient(chromedriver_path=temp_path)
-            service = client._get_chromedriver_service()
-            # Verify service was created (path would be set)
-            assert service is not None
-        finally:
-            os.unlink(temp_path)
-
-    @patch("linkedin_importer.scraper_client.WEBDRIVER_MANAGER_AVAILABLE", False)
-    def test_webdriver_manager_not_available(self):
-        """Should raise BrowserError if webdriver-manager not installed."""
-        client = LinkedInScraperClient(chromedriver_path=None)
-
-        with pytest.raises(BrowserError) as exc_info:
-            client._get_chromedriver_service()
-
-        assert "webdriver-manager" in str(exc_info.value).lower()
-        assert "suggestion" in exc_info.value.details
-
-    @patch("linkedin_importer.scraper_client.ChromeDriverManager")
-    def test_auto_download_success(self, mock_manager_class):
-        """Should auto-download chromedriver when no path specified (Requirement 3.1)."""
-        mock_manager = Mock()
-        mock_manager.install.return_value = "/tmp/chromedriver"
-        mock_manager_class.return_value = mock_manager
-
-        client = LinkedInScraperClient(chromedriver_path=None)
-
-        with patch(
-            "linkedin_importer.scraper_client.WEBDRIVER_MANAGER_AVAILABLE", True
-        ):
-            service = client._get_chromedriver_service()
-
-        mock_manager.install.assert_called_once()
-        assert service is not None
-
-    @patch("linkedin_importer.scraper_client.ChromeDriverManager")
-    def test_auto_download_failure(self, mock_manager_class):
-        """Should raise BrowserError on download failure."""
-        mock_manager = Mock()
-        mock_manager.install.side_effect = Exception("Network error")
-        mock_manager_class.return_value = mock_manager
-
-        client = LinkedInScraperClient(chromedriver_path=None)
-
-        with patch(
-            "linkedin_importer.scraper_client.WEBDRIVER_MANAGER_AVAILABLE", True
-        ):
-            with pytest.raises(BrowserError) as exc_info:
-                client._get_chromedriver_service()
-
-        assert "download" in str(exc_info.value).lower()
-        assert "suggestion" in exc_info.value.details
-
-
-class TestDriverCreation:
-    """Test WebDriver creation and initialization."""
-
-    @patch.object(LinkedInScraperClient, "_get_chromedriver_service")
-    @patch("linkedin_importer.scraper_client.webdriver.Chrome")
-    def test_create_driver_success(self, mock_chrome, mock_service):
-        """Should create driver with correct options (Requirement 3.1)."""
-        mock_driver = MagicMock()
-        mock_driver.capabilities = {
-            "browserVersion": "120.0.0",
-            "chrome": {"chromedriverVersion": "120.0.0"},
-        }
-        mock_chrome.return_value = mock_driver
-        mock_service.return_value = Mock()
-
-        client = LinkedInScraperClient(headless=True, page_load_timeout=45)
-        driver = client._create_driver()
-
-        assert driver is mock_driver
-        mock_driver.set_page_load_timeout.assert_called_once_with(45)
-        mock_driver.execute_cdp_cmd.assert_called_once()
-
-    @patch.object(LinkedInScraperClient, "_get_chromedriver_service")
-    @patch("linkedin_importer.scraper_client.webdriver.Chrome")
-    def test_create_driver_stores_version_info(self, mock_chrome, mock_service):
-        """Should store browser and driver version info."""
-        mock_driver = MagicMock()
-        mock_driver.capabilities = {
-            "browserVersion": "121.0.6167.85",
-            "chrome": {"chromedriverVersion": "121.0.6167.85"},
-        }
-        mock_chrome.return_value = mock_driver
-        mock_service.return_value = Mock()
-
-        client = LinkedInScraperClient()
-        client._create_driver()
-
-        assert client._browser_version == "121.0.6167.85"
-        assert client._driver_version == "121.0.6167.85"
-
-    @patch.object(LinkedInScraperClient, "_get_chromedriver_service")
-    @patch("linkedin_importer.scraper_client.webdriver.Chrome")
-    def test_create_driver_webdriver_exception(self, mock_chrome, mock_service):
-        """Should raise BrowserError on WebDriverException."""
-        mock_chrome.side_effect = WebDriverException("Chrome not found")
-        mock_service.return_value = Mock()
-
-        client = LinkedInScraperClient()
-
-        with pytest.raises(BrowserError) as exc_info:
-            client._create_driver()
-
-        assert "Chrome" in str(exc_info.value)
-        assert exc_info.value.details["headless"] is True
-
-    @patch.object(LinkedInScraperClient, "_get_chromedriver_service")
-    @patch("linkedin_importer.scraper_client.webdriver.Chrome")
-    def test_create_driver_cdp_anti_detection(self, mock_chrome, mock_service):
-        """Should execute CDP command for navigator.webdriver removal."""
-        mock_driver = MagicMock()
-        mock_driver.capabilities = {"browserVersion": "120.0.0", "chrome": {}}
-        mock_chrome.return_value = mock_driver
-        mock_service.return_value = Mock()
-
-        client = LinkedInScraperClient()
-        client._create_driver()
-
-        # Verify CDP command was called
-        mock_driver.execute_cdp_cmd.assert_called_once()
-        call_args = mock_driver.execute_cdp_cmd.call_args
-        assert call_args[0][0] == "Page.addScriptToEvaluateOnNewDocument"
-        assert "navigator" in call_args[0][1]["source"]
-        assert "webdriver" in call_args[0][1]["source"]
-
-
-class TestEnsureDriver:
-    """Test driver initialization lazy loading."""
-
-    @patch.object(LinkedInScraperClient, "_create_driver")
-    def test_ensure_driver_creates_when_none(self, mock_create):
-        """Should create driver when none exists."""
-        mock_driver = MagicMock()
-        mock_create.return_value = mock_driver
-
-        client = LinkedInScraperClient()
-        assert client.driver is None
-
-        result = client._ensure_driver()
-
-        mock_create.assert_called_once()
-        assert result is mock_driver
-        assert client.driver is mock_driver
-
-    @patch.object(LinkedInScraperClient, "_create_driver")
-    def test_ensure_driver_reuses_existing(self, mock_create):
-        """Should reuse existing driver."""
-        existing_driver = MagicMock()
-
-        client = LinkedInScraperClient()
-        client.driver = existing_driver
-
-        result = client._ensure_driver()
-
-        mock_create.assert_not_called()
-        assert result is existing_driver
-
-
-class TestDriverClose:
-    """Test driver cleanup and close functionality."""
-
-    def test_close_when_driver_none(self):
-        """Should safely handle close when driver is None (Requirement 3.4)."""
-        client = LinkedInScraperClient()
-        assert client.driver is None
-
-        # Should not raise
         client.close()
 
-        assert client.driver is None
-        assert client.authenticated is False
+        mock_runtime.stop.assert_called_once()
 
-    def test_close_calls_quit(self):
-        """Should call driver.quit() on close (Requirement 3.4)."""
-        mock_driver = MagicMock()
+    @patch("linkedin_importer.scraper_client._PlaywrightRuntime")
+    def test_close_resets_authenticated(self, mock_runtime_class):
+        """close() should reset authenticated flag."""
+        from linkedin_importer.scraper_client import LinkedInScraperClient
 
-        client = LinkedInScraperClient()
-        client.driver = mock_driver
-        client.authenticated = True
-        client._browser_version = "120.0.0"
-        client._driver_version = "120.0.0"
+        mock_runtime = MagicMock()
+        mock_runtime_class.return_value = mock_runtime
 
-        client.close()
-
-        mock_driver.quit.assert_called_once()
-        assert client.driver is None
-        assert client.authenticated is False
-        assert client._browser_version is None
-        assert client._driver_version is None
-
-    def test_close_handles_quit_exception(self):
-        """Should handle exception during quit gracefully."""
-        mock_driver = MagicMock()
-        mock_driver.quit.side_effect = WebDriverException("Already closed")
-
-        client = LinkedInScraperClient()
-        client.driver = mock_driver
+        client = LinkedInScraperClient(headless=True)
         client.authenticated = True
 
-        # Should not raise
         client.close()
 
-        assert client.driver is None
         assert client.authenticated is False
 
-    def test_close_handles_generic_exception(self):
-        """Should handle generic exception during quit gracefully."""
-        mock_driver = MagicMock()
-        mock_driver.quit.side_effect = RuntimeError("Unexpected error")
+    @patch("linkedin_importer.scraper_client._PlaywrightRuntime")
+    def test_close_is_idempotent(self, mock_runtime_class):
+        """close() should be safe to call multiple times."""
+        from linkedin_importer.scraper_client import LinkedInScraperClient
 
-        client = LinkedInScraperClient()
-        client.driver = mock_driver
+        mock_runtime = MagicMock()
+        mock_runtime_class.return_value = mock_runtime
 
-        # Should not raise
+        client = LinkedInScraperClient(headless=True)
+
+        # Call close multiple times - should not raise
+        client.close()
+        client.close()
         client.close()
 
-        assert client.driver is None
+        # authenticated should remain False
+        assert client.authenticated is False
 
 
-class TestContextManagers:
-    """Test synchronous and async context managers."""
+class TestContextManager:
+    """Test context manager functionality."""
 
-    def test_sync_context_manager_entry(self):
-        """Sync context manager should return client on entry."""
-        client = LinkedInScraperClient()
+    @patch("linkedin_importer.scraper_client._PlaywrightRuntime")
+    def test_sync_context_manager_enter_returns_client(self, mock_runtime_class):
+        """__enter__ should return the client instance."""
+        from linkedin_importer.scraper_client import LinkedInScraperClient
 
-        with client as ctx:
-            assert ctx is client
+        mock_runtime = MagicMock()
+        mock_runtime_class.return_value = mock_runtime
 
-    def test_sync_context_manager_calls_close(self):
-        """Sync context manager should call close on exit (Requirement 3.4)."""
-        client = LinkedInScraperClient()
-        mock_driver = MagicMock()
-        client.driver = mock_driver
+        client = LinkedInScraperClient(headless=True)
+        result = client.__enter__()
 
-        with client:
-            pass
+        assert result is client
 
-        mock_driver.quit.assert_called_once()
-        assert client.driver is None
+    @patch("linkedin_importer.scraper_client._PlaywrightRuntime")
+    def test_sync_context_manager_exit_closes(self, mock_runtime_class):
+        """__exit__ should close the client."""
+        from linkedin_importer.scraper_client import LinkedInScraperClient
 
-    def test_sync_context_manager_closes_on_exception(self):
-        """Sync context manager should close on exception (Requirement 5.5)."""
-        client = LinkedInScraperClient()
-        mock_driver = MagicMock()
-        client.driver = mock_driver
+        mock_runtime = MagicMock()
+        mock_runtime_class.return_value = mock_runtime
 
-        with pytest.raises(ValueError):
-            with client:
-                raise ValueError("Test error")
+        client = LinkedInScraperClient(headless=True)
+        client.__exit__(None, None, None)
 
-        mock_driver.quit.assert_called_once()
-        assert client.driver is None
+        mock_runtime.stop.assert_called()
 
+    @patch("linkedin_importer.scraper_client._PlaywrightRuntime")
+    def test_with_statement_usage(self, mock_runtime_class):
+        """Client should work with 'with' statement."""
+        from linkedin_importer.scraper_client import LinkedInScraperClient
+
+        mock_runtime = MagicMock()
+        mock_runtime_class.return_value = mock_runtime
+
+        with LinkedInScraperClient(headless=True) as client:
+            assert client is not None
+            assert isinstance(client, LinkedInScraperClient)
+
+        mock_runtime.stop.assert_called()
+
+    @patch("linkedin_importer.scraper_client._PlaywrightRuntime")
     @pytest.mark.asyncio
-    async def test_async_context_manager_entry(self):
-        """Async context manager should return client on entry."""
-        client = LinkedInScraperClient()
+    async def test_async_context_manager_enter_returns_client(self, mock_runtime_class):
+        """__aenter__ should return the client instance."""
+        from linkedin_importer.scraper_client import LinkedInScraperClient
 
-        async with client as ctx:
-            assert ctx is client
+        mock_runtime = MagicMock()
+        mock_runtime_class.return_value = mock_runtime
 
+        client = LinkedInScraperClient(headless=True)
+        result = await client.__aenter__()
+
+        assert result is client
+
+    @patch("linkedin_importer.scraper_client._PlaywrightRuntime")
     @pytest.mark.asyncio
-    async def test_async_context_manager_calls_close(self):
-        """Async context manager should call close on exit (Requirement 3.4)."""
-        client = LinkedInScraperClient()
-        mock_driver = MagicMock()
-        client.driver = mock_driver
+    async def test_async_context_manager_exit_closes(self, mock_runtime_class):
+        """__aexit__ should close the client."""
+        from linkedin_importer.scraper_client import LinkedInScraperClient
 
-        async with client:
-            pass
+        mock_runtime = MagicMock()
+        mock_runtime_class.return_value = mock_runtime
 
-        mock_driver.quit.assert_called_once()
-        assert client.driver is None
+        client = LinkedInScraperClient(headless=True)
+        await client.__aexit__(None, None, None)
 
-    @pytest.mark.asyncio
-    async def test_async_context_manager_closes_on_exception(self):
-        """Async context manager should close on exception (Requirement 5.5)."""
-        client = LinkedInScraperClient()
-        mock_driver = MagicMock()
-        client.driver = mock_driver
-
-        with pytest.raises(ValueError):
-            async with client:
-                raise ValueError("Test error")
-
-        mock_driver.quit.assert_called_once()
-        assert client.driver is None
-
-
-class TestScreenshotFunctionality:
-    """Test screenshot capture functionality."""
-
-    def test_take_screenshot_no_driver(self):
-        """Should return None if driver not initialized."""
-        client = LinkedInScraperClient()
-        assert client.driver is None
-
-        result = client.take_screenshot("test")
-
-        assert result is None
-
-    def test_take_screenshot_success(self):
-        """Should save screenshot and return path."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            mock_driver = MagicMock()
-
-            client = LinkedInScraperClient(screenshot_dir=tmpdir)
-            client.driver = mock_driver
-
-            result = client.take_screenshot("test_error")
-
-            assert result is not None
-            assert "test_error_" in result
-            assert result.endswith(".png")
-            mock_driver.save_screenshot.assert_called_once()
-
-    def test_take_screenshot_creates_directory(self):
-        """Should create screenshot directory if it doesn't exist."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            nested_dir = Path(tmpdir) / "nested" / "screenshots"
-            mock_driver = MagicMock()
-
-            client = LinkedInScraperClient(screenshot_dir=str(nested_dir))
-            client.driver = mock_driver
-
-            result = client.take_screenshot("test")
-
-            assert result is not None
-            assert nested_dir.exists()
-
-    def test_take_screenshot_handles_exception(self):
-        """Should return None on exception."""
-        mock_driver = MagicMock()
-        mock_driver.save_screenshot.side_effect = Exception("Screenshot failed")
-
-        client = LinkedInScraperClient(screenshot_dir="/tmp")
-        client.driver = mock_driver
-
-        result = client.take_screenshot("test")
-
-        assert result is None
-
-    def test_capture_error_screenshot_disabled(self):
-        """Should return None when screenshot_on_error is False."""
-        client = LinkedInScraperClient(screenshot_on_error=False)
-        client.driver = MagicMock()
-
-        result = client._capture_error_screenshot("test")
-
-        assert result is None
-
-    def test_capture_error_screenshot_enabled(self):
-        """Should take screenshot when screenshot_on_error is True."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            mock_driver = MagicMock()
-
-            client = LinkedInScraperClient(
-                screenshot_on_error=True, screenshot_dir=tmpdir
-            )
-            client.driver = mock_driver
-
-            result = client._capture_error_screenshot("auth_error")
-
-            assert result is not None
-            assert "auth_error_" in result
+        mock_runtime.stop.assert_called()
 
 
 class TestDriverInfo:
-    """Test driver info retrieval."""
+    """Test driver info functionality."""
 
-    def test_get_driver_info_no_driver(self):
-        """Should return info with None values when no driver."""
-        client = LinkedInScraperClient(headless=True, page_load_timeout=30)
+    @patch("linkedin_importer.scraper_client._PlaywrightRuntime")
+    def test_get_driver_info_returns_dict(self, mock_runtime_class):
+        """get_driver_info should return a dictionary."""
+        from linkedin_importer.scraper_client import LinkedInScraperClient
 
+        mock_runtime = MagicMock()
+        mock_runtime_class.return_value = mock_runtime
+
+        client = LinkedInScraperClient(headless=True)
         info = client.get_driver_info()
 
-        assert info["browser_version"] is None
-        assert info["driver_version"] is None
-        assert info["headless"] is True
-        assert info["page_load_timeout"] == 30
-        assert info["driver_active"] is False
-        assert info["authenticated"] is False
+        assert isinstance(info, dict)
 
-    def test_get_driver_info_with_driver(self):
-        """Should return complete info with driver."""
-        mock_driver = MagicMock()
+    @patch("linkedin_importer.scraper_client._PlaywrightRuntime")
+    def test_get_driver_info_contains_chrome_version(self, mock_runtime_class):
+        """get_driver_info should contain chrome_version."""
+        from linkedin_importer.scraper_client import LinkedInScraperClient
 
-        client = LinkedInScraperClient(headless=False, page_load_timeout=60)
-        client.driver = mock_driver
-        client.authenticated = True
-        client._browser_version = "121.0.0"
-        client._driver_version = "121.0.0"
+        mock_runtime = MagicMock()
+        mock_runtime_class.return_value = mock_runtime
 
+        client = LinkedInScraperClient(headless=True)
         info = client.get_driver_info()
 
-        assert info["browser_version"] == "121.0.0"
-        assert info["driver_version"] == "121.0.0"
-        assert info["headless"] is False
-        assert info["page_load_timeout"] == 60
-        assert info["driver_active"] is True
-        assert info["authenticated"] is True
+        assert "chrome_version" in info
+        assert info["chrome_version"] == "playwright-chromium"
+
+    @patch("linkedin_importer.scraper_client._PlaywrightRuntime")
+    def test_get_driver_info_contains_driver_version(self, mock_runtime_class):
+        """get_driver_info should contain driver_version."""
+        from linkedin_importer.scraper_client import LinkedInScraperClient
+
+        mock_runtime = MagicMock()
+        mock_runtime_class.return_value = mock_runtime
+
+        client = LinkedInScraperClient(headless=True)
+        info = client.get_driver_info()
+
+        assert "driver_version" in info
+        assert info["driver_version"] == "playwright"
 
 
-class TestBrowserErrorDetails:
-    """Test error details include helpful information."""
+class TestPlaywrightRuntimeInternal:
+    """Test _PlaywrightRuntime class directly."""
 
-    def test_browser_error_includes_chromedriver_path(self):
-        """BrowserError should include chromedriver path in details."""
-        client = LinkedInScraperClient(chromedriver_path="/custom/path")
+    def test_runtime_creates_event_loop(self):
+        """Runtime should create its own event loop."""
+        from linkedin_importer.scraper_client import _PlaywrightRuntime
 
-        with pytest.raises(BrowserError) as exc_info:
-            client._get_chromedriver_service()
+        runtime = _PlaywrightRuntime(headless=True)
 
-        assert "chromedriver_path" in exc_info.value.details
-        assert exc_info.value.details["chromedriver_path"] == "/custom/path"
+        assert runtime._loop is not None
+        assert runtime._thread is not None
 
-    @patch.object(LinkedInScraperClient, "_get_chromedriver_service")
-    @patch("linkedin_importer.scraper_client.webdriver.Chrome")
-    def test_browser_error_includes_suggestion(self, mock_chrome, mock_service):
-        """BrowserError should include helpful suggestion."""
-        mock_chrome.side_effect = WebDriverException("Version mismatch")
-        mock_service.return_value = Mock()
+    def test_runtime_stores_config(self):
+        """Runtime should store headless and user_agent config."""
+        from linkedin_importer.scraper_client import _PlaywrightRuntime
 
-        client = LinkedInScraperClient()
+        runtime = _PlaywrightRuntime(headless=False, user_agent="Test Agent")
 
-        with pytest.raises(BrowserError) as exc_info:
-            client._create_driver()
+        assert runtime.headless is False
+        assert runtime.user_agent == "Test Agent"
 
-        assert "suggestion" in exc_info.value.details
+    def test_runtime_page_initially_none(self):
+        """Runtime page should be None before start."""
+        from linkedin_importer.scraper_client import _PlaywrightRuntime
+
+        runtime = _PlaywrightRuntime(headless=True)
+
+        assert runtime._page is None
 
 
-class TestPropertyBasedBrowserTests:
-    """Property-based tests for browser configuration."""
+class TestPropertyBasedConfiguration:
+    """Property-based tests for configuration."""
 
     @given(headless=st.booleans())
-    @settings(max_examples=10)
-    def test_headless_option_matches_config(self, headless: bool):
-        """Property: Headless option matches configuration."""
+    @settings(
+        max_examples=10, suppress_health_check=[HealthCheck.function_scoped_fixture]
+    )
+    @patch("linkedin_importer.scraper_client._PlaywrightRuntime")
+    def test_headless_preserved(self, mock_runtime_class, headless):
+        """Headless setting should be preserved."""
+        from linkedin_importer.scraper_client import LinkedInScraperClient
+
+        mock_runtime = MagicMock()
+        mock_runtime_class.return_value = mock_runtime
+
         client = LinkedInScraperClient(headless=headless)
-        options = client._build_chrome_options()
 
-        has_headless = "--headless=new" in options.arguments
+        assert client.headless == headless
 
-        assert has_headless == headless
+    @given(timeout=st.integers(min_value=5, max_value=120))
+    @settings(
+        max_examples=10, suppress_health_check=[HealthCheck.function_scoped_fixture]
+    )
+    @patch("linkedin_importer.scraper_client._PlaywrightRuntime")
+    def test_timeout_preserved(self, mock_runtime_class, timeout):
+        """Page load timeout should be preserved."""
+        from linkedin_importer.scraper_client import LinkedInScraperClient
 
-    @given(user_agent=st.text(min_size=1, max_size=200).filter(lambda x: x.strip()))
-    @settings(max_examples=20)
-    def test_user_agent_preserved(self, user_agent: str):
-        """Property: User agent is preserved in options."""
-        client = LinkedInScraperClient(user_agent=user_agent)
-        options = client._build_chrome_options()
+        mock_runtime = MagicMock()
+        mock_runtime_class.return_value = mock_runtime
 
-        expected_arg = f"--user-agent={user_agent}"
-        assert expected_arg in options.arguments
+        client = LinkedInScraperClient(headless=True, page_load_timeout=timeout)
 
-    @given(screenshot_dir=st.text(min_size=1, max_size=100).filter(lambda x: x.strip()))
-    @settings(max_examples=10)
-    def test_screenshot_dir_preserved(self, screenshot_dir: str):
-        """Property: Screenshot directory is preserved."""
-        client = LinkedInScraperClient(screenshot_dir=screenshot_dir)
-        assert client.screenshot_dir == screenshot_dir
+        assert client.page_load_timeout == timeout
+
+    @given(user_agent=st.text(min_size=1, max_size=200))
+    @settings(
+        max_examples=10, suppress_health_check=[HealthCheck.function_scoped_fixture]
+    )
+    @patch("linkedin_importer.scraper_client._PlaywrightRuntime")
+    def test_user_agent_preserved(self, mock_runtime_class, user_agent):
+        """User agent should be preserved."""
+        from linkedin_importer.scraper_client import LinkedInScraperClient
+
+        mock_runtime = MagicMock()
+        mock_runtime_class.return_value = mock_runtime
+
+        client = LinkedInScraperClient(headless=True, user_agent=user_agent)
+
+        assert client.user_agent == user_agent
+
+    @given(max_retries=st.integers(min_value=1, max_value=10))
+    @settings(
+        max_examples=10, suppress_health_check=[HealthCheck.function_scoped_fixture]
+    )
+    @patch("linkedin_importer.scraper_client._PlaywrightRuntime")
+    def test_max_retries_preserved(self, mock_runtime_class, max_retries):
+        """Max retries should be preserved."""
+        from linkedin_importer.scraper_client import LinkedInScraperClient
+
+        mock_runtime = MagicMock()
+        mock_runtime_class.return_value = mock_runtime
+
+        client = LinkedInScraperClient(headless=True, max_retries=max_retries)
+
+        assert client.max_retries == max_retries
+
+    @given(action_delay=st.floats(min_value=0.5, max_value=10.0))
+    @settings(
+        max_examples=10, suppress_health_check=[HealthCheck.function_scoped_fixture]
+    )
+    @patch("linkedin_importer.scraper_client._PlaywrightRuntime")
+    def test_action_delay_preserved(self, mock_runtime_class, action_delay):
+        """Action delay should be preserved."""
+        from linkedin_importer.scraper_client import LinkedInScraperClient
+
+        mock_runtime = MagicMock()
+        mock_runtime_class.return_value = mock_runtime
+
+        client = LinkedInScraperClient(headless=True, action_delay=action_delay)
+
+        assert client.action_delay == action_delay
+
+    @given(scroll_delay=st.floats(min_value=0.1, max_value=5.0))
+    @settings(
+        max_examples=10, suppress_health_check=[HealthCheck.function_scoped_fixture]
+    )
+    @patch("linkedin_importer.scraper_client._PlaywrightRuntime")
+    def test_scroll_delay_preserved(self, mock_runtime_class, scroll_delay):
+        """Scroll delay should be preserved."""
+        from linkedin_importer.scraper_client import LinkedInScraperClient
+
+        mock_runtime = MagicMock()
+        mock_runtime_class.return_value = mock_runtime
+
+        client = LinkedInScraperClient(headless=True, scroll_delay=scroll_delay)
+
+        assert client.scroll_delay == scroll_delay
+
+
+class TestAuthenticatedState:
+    """Test authenticated state management."""
+
+    @patch("linkedin_importer.scraper_client._PlaywrightRuntime")
+    def test_initially_not_authenticated(self, mock_runtime_class):
+        """Client should not be authenticated initially."""
+        from linkedin_importer.scraper_client import LinkedInScraperClient
+
+        mock_runtime = MagicMock()
+        mock_runtime_class.return_value = mock_runtime
+
+        client = LinkedInScraperClient(headless=True)
+
+        assert client.authenticated is False
+
+    @patch("linkedin_importer.scraper_client._PlaywrightRuntime")
+    @patch("linkedin_importer.scraper_client.login_with_cookie")
+    def test_authenticated_after_cookie_login(
+        self, mock_login_with_cookie, mock_runtime_class
+    ):
+        """Client should be authenticated after successful cookie login."""
+        from linkedin_importer.scraper_client import LinkedInScraperClient
+
+        mock_runtime = MagicMock()
+        mock_runtime.run = MagicMock(return_value=None)
+        mock_runtime_class.return_value = mock_runtime
+
+        client = LinkedInScraperClient(headless=True)
+        client.authenticate(cookie="test_cookie")
+
+        assert client.authenticated is True
+
+    @patch("linkedin_importer.scraper_client._PlaywrightRuntime")
+    @patch("linkedin_importer.scraper_client.login_with_credentials")
+    def test_authenticated_after_credentials_login(
+        self, mock_login_with_credentials, mock_runtime_class
+    ):
+        """Client should be authenticated after successful credentials login."""
+        from linkedin_importer.scraper_client import LinkedInScraperClient
+
+        mock_runtime = MagicMock()
+        mock_runtime.run = MagicMock(return_value=None)
+        mock_runtime_class.return_value = mock_runtime
+
+        client = LinkedInScraperClient(headless=True)
+        client.authenticate(email="user@example.com", password="password123")
+
+        assert client.authenticated is True
+
+    @patch("linkedin_importer.scraper_client._PlaywrightRuntime")
+    @patch("linkedin_importer.scraper_client.login_with_cookie")
+    def test_close_resets_authenticated_state(
+        self, mock_login_with_cookie, mock_runtime_class
+    ):
+        """close() should reset authenticated state."""
+        from linkedin_importer.scraper_client import LinkedInScraperClient
+
+        mock_runtime = MagicMock()
+        mock_runtime.run = MagicMock(return_value=None)
+        mock_runtime_class.return_value = mock_runtime
+
+        client = LinkedInScraperClient(headless=True)
+        client.authenticate(cookie="test_cookie")
+
+        assert client.authenticated is True
+
+        client.close()
+
+        assert client.authenticated is False
