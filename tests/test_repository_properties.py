@@ -145,7 +145,9 @@ def test_transaction_rollback_on_failure(user, projects):
                 side_effect=mock_link_technologies,
             ):
                 # Execute import - should fail
-                result = asyncio.run(repo.execute_import(user, projects))
+                result = asyncio.run(
+                    repo.execute_import(user, projects, [], [], [], [])
+                )
 
     # Verify the result indicates failure
     assert result.success is False
@@ -252,7 +254,9 @@ def test_transaction_commits_on_success(user, projects):
                 side_effect=mock_link_technologies,
             ):
                 # Execute import - should succeed
-                result = asyncio.run(repo.execute_import(user, projects))
+                result = asyncio.run(
+                    repo.execute_import(user, projects, [], [], [], [])
+                )
 
     # Verify the result indicates success
     assert result.success is True

@@ -612,11 +612,18 @@ class TestEndToEndFlow:
             # Verify execute_import was called with mapped data
             mock_repo.execute_import.assert_called_once()
             call_args = mock_repo.execute_import.call_args
-            user_data, projects_data = call_args[0]
+            (
+                user_data,
+                projects_data,
+                experiences_data,
+                educations_data,
+                certifications_data,
+                skills_data,
+            ) = call_args[0]
 
             assert user_data.email == config.profile_email
             assert "Experienced Developer" in user_data.name
-            assert len(projects_data) == 3
+            assert len(experiences_data) == 3
 
     @pytest.mark.asyncio
     async def test_profile_with_special_characters(self):
@@ -665,5 +672,12 @@ class TestEndToEndFlow:
 
             # Verify special characters were preserved
             call_args = mock_repo.execute_import.call_args
-            user_data, _ = call_args[0]
+            (
+                user_data,
+                projects_data,
+                experiences_data,
+                educations_data,
+                certifications_data,
+                skills_data,
+            ) = call_args[0]
             assert "José" in user_data.name or "Garcia" in user_data.name

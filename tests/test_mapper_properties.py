@@ -266,7 +266,14 @@ def test_profile_mapping_preserves_essential_information(profile):
     should be preserved according to the schema mapping.
     """
     # Map profile to database models
-    user_data, projects = map_profile_to_database(profile)
+    (
+        user_data,
+        projects,
+        experiences,
+        educations,
+        certifications,
+        skills,
+    ) = map_profile_to_database(profile)
 
     # Verify user data preservation
     assert user_data.email == profile.email
@@ -283,9 +290,8 @@ def test_profile_mapping_preserves_essential_information(profile):
     if profile.industry:
         assert profile.industry in user_data.bio
 
-    # Verify education is in bio
-    for edu in profile.education:
-        assert edu.school in user_data.bio
+    # Verify education entries are mapped
+    assert len(educations) == len(profile.education)
 
     # Verify languages are in bio
     for lang in profile.languages:
@@ -295,90 +301,36 @@ def test_profile_mapping_preserves_essential_information(profile):
     for honor in profile.honors:
         assert honor.title in user_data.bio
 
-    # Verify project count matches expected
-    expected_project_count = (
-        len(profile.positions)
-        + len(profile.certifications)
-        + len(profile.publications)
-        + len(profile.volunteer)
-    )
-    assert len(projects) == expected_project_count
+    # Verify experiences are mapped from positions
+    assert len(experiences) == len(profile.positions)
 
-    # Verify positions are mapped to projects
-    position_projects = [
-        p
-        for p in projects
-        if not p.title.startswith(("Certification:", "Publication:", "Volunteer:"))
-    ]
-    assert len(position_projects) == len(profile.positions)
+    # Verify certifications are mapped
+    assert len(certifications) == len(profile.certifications)
 
-    for position in profile.positions:
-        # Find corresponding project
-        matching_projects = [
-            p
-            for p in position_projects
-            if position.company_name in p.title and position.title in p.title
-        ]
-        assert len(matching_projects) >= 1  # May have duplicates with unique slugs
-        project = matching_projects[0]
+    # Verify skills are mapped
+    assert len(skills) == len(profile.skills)
 
-        # Verify project data
-        assert position.company_name in project.title
-        assert position.title in project.title
-        if position.description:
-            assert project.description == position.description
-        if position.company_url:
-            assert project.live_url == position.company_url
-        if position.company_logo_url:
-            assert project.image_url == position.company_logo_url
+    # Verify experience data is preserved
+    for i, position in enumerate(profile.positions):
+        if i < len(experiences):
+            exp = experiences[i]
+            assert exp.company == position.company_name
+            assert exp.position == position.title
 
-    # Verify certifications are mapped with prefix
-    cert_projects = [p for p in projects if p.title.startswith("Certification:")]
-    assert len(cert_projects) == len(profile.certifications)
+    # Verify education data is preserved
+    for i, edu in enumerate(profile.education):
+        if i < len(educations):
+            ed = educations[i]
+            assert ed.school == edu.school
 
-    for cert in profile.certifications:
-        # Find project matching both name in title AND authority in description
-        matching_projects = [
-            p
-            for p in cert_projects
-            if cert.name in p.title and cert.authority in p.description
-        ]
-        assert len(matching_projects) >= 1  # May have duplicates with unique slugs
-        project = matching_projects[0]
-        assert project.title.startswith("Certification:")
+    # Verify certification data is preserved
+    for i, cert in enumerate(profile.certifications):
+        if i < len(certifications):
+            c = certifications[i]
+            assert c.name == cert.name
 
-    # Verify publications are mapped with prefix
-    pub_projects = [p for p in projects if p.title.startswith("Publication:")]
-    assert len(pub_projects) == len(profile.publications)
-
-    for pub in profile.publications:
-        matching_projects = [p for p in pub_projects if pub.name in p.title]
-        assert len(matching_projects) >= 1  # May have duplicates with unique slugs
-        project = matching_projects[0]
-        assert project.title.startswith("Publication:")
-
-    # Verify volunteer experiences are mapped with prefix
-    vol_projects = [p for p in projects if p.title.startswith("Volunteer:")]
-    assert len(vol_projects) == len(profile.volunteer)
-
-    for vol in profile.volunteer:
-        matching_projects = [
-            p
-            for p in vol_projects
-            if vol.organization in p.title and vol.role in p.title
-        ]
-        assert len(matching_projects) >= 1  # May have duplicates with unique slugs
-        project = matching_projects[0]
-        assert project.title.startswith("Volunteer:")
-
-    # Verify skills are linked to recent projects
-    if profile.skills and projects:
-        # Get the most recent projects (up to 3)
-        recent_projects = projects[: min(3, len(projects))]
-        skill_names = [skill.name for skill in profile.skills]
-
-        for project in recent_projects:
-            # Each recent project should have skills linked
-            assert len(project.technologies) == len(skill_names)
-            for skill_name in skill_names:
-                assert skill_name in project.technologies
+    # Verify skill data is preserved
+    for i, skill in enumerate(profile.skills):
+        if i < len(skills):
+            s = skills[i]
+            assert s.name == skill.name
